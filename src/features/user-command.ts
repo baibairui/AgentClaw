@@ -7,6 +7,10 @@ export interface UserCommandResult {
   switchTarget?: string;
   renameTarget?: string;
   renameName?: string;
+  queryModel?: boolean;
+  queryModels?: boolean;
+  setModel?: string;
+  clearModel?: boolean;
 }
 
 export function maskThreadId(threadId?: string): string {
@@ -58,6 +62,10 @@ export function handleUserCommand(
           '/sessions - 查看历史会话列表',
           '/rename <编号|threadId> <名称> - 重命名会话',
           '/switch <编号|threadId> - 切换会话',
+          '/model - 查看当前模型',
+          '/model <模型名> - 切换模型',
+          '/model reset - 重置为默认模型',
+          '/models - 查看当前 Codex 支持的模型',
         ].join('\n'),
       };
     case '/new':
@@ -105,6 +113,37 @@ export function handleUserCommand(
         renameName: name,
       };
     }
+    case '/model': {
+      const model = parts.slice(1).join(' ').trim();
+      if (!model) {
+        return {
+          handled: true,
+          queryModel: true,
+        };
+      }
+      const action = model.toLowerCase();
+      if (action === 'reset' || action === 'default' || action === 'clear') {
+        return {
+          handled: true,
+          clearModel: true,
+        };
+      }
+      if (/\s/.test(model)) {
+        return {
+          handled: true,
+          message: '用法：/model <模型名>；模型名不能包含空格',
+        };
+      }
+      return {
+        handled: true,
+        setModel: model,
+      };
+    }
+    case '/models':
+      return {
+        handled: true,
+        queryModels: true,
+      };
     default:
       return {
         handled: true,

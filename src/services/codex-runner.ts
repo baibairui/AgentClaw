@@ -6,6 +6,7 @@ const log = createLogger('CodexRunner');
 export interface CodexRunInput {
   prompt: string;
   threadId?: string;
+  model?: string;
   /** 每产出一条 agent_message 就回调一次 */
   onMessage?: (text: string) => void;
 }
@@ -101,13 +102,7 @@ export class CodexRunner {
   }
 
   run(input: CodexRunInput): Promise<CodexRunResult> {
-    const sandboxFlag = this.sandbox === 'none'
-      ? '--dangerously-bypass-approvals-and-sandbox'
-      : '--full-auto';
-
-    const args = input.threadId
-      ? ['exec', 'resume', input.threadId, '--json', sandboxFlag, '--skip-git-repo-check', input.prompt]
-      : ['exec', '--json', sandboxFlag, '--skip-git-repo-check', input.prompt];
+    const args = buildCodexArgs(input, this.sandbox);
 
     log.info('Codex 子进程启动', {
       bin: this.codexBin,
@@ -272,6 +267,25 @@ export class CodexRunner {
     const byPrompt = min + Math.max(0, prompt.length) * Math.max(0, this.timeoutPerCharMs);
     return Math.min(max, byPrompt);
   }
+}
+
+export function buildCodexArgs(
+  input: Pick<CodexRunInput, 'prompt' | 'threadId' | 'model'>,
+  sandbox: 'full-auto' | 'none',
+): string[] {
+  const sandboxFlag = sandbox === 'none'
+    ? '--dangerously-bypass-approvals-and-sandbox'
+    : '--full-auto';
+
+  const args = input.threadId
+    ? ['exec', 'resume', input.threadId, '--json', sandboxFlag, '--skip-git-repo-check']
+    : ['exec', '--json', sandboxFlag, '--skip-git-repo-check'];
+
+  if (input.model) {
+    args.push('--model', input.model);
+  }
+  args.push(input.prompt);
+  return args;
 }
 
 function redactArgsForLog(args: string[]): string[] {

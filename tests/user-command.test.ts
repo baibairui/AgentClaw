@@ -65,6 +65,36 @@ describe('handleUserCommand', () => {
     expect(result.handled).toBe(true);
     expect(result.message).toContain('/rename <编号|threadId> <名称>');
   });
+
+  it('supports /model query', () => {
+    const result = handleUserCommand('/model', 'thread_old');
+    expect(result.handled).toBe(true);
+    expect(result.queryModel).toBe(true);
+  });
+
+  it('supports /model set', () => {
+    const result = handleUserCommand('/model gpt-5-codex', 'thread_old');
+    expect(result.handled).toBe(true);
+    expect(result.setModel).toBe('gpt-5-codex');
+  });
+
+  it('supports /model reset', () => {
+    const result = handleUserCommand('/model reset', 'thread_old');
+    expect(result.handled).toBe(true);
+    expect(result.clearModel).toBe(true);
+  });
+
+  it('rejects /model with spaces in model name', () => {
+    const result = handleUserCommand('/model gpt 5', 'thread_old');
+    expect(result.handled).toBe(true);
+    expect(result.message).toContain('模型名不能包含空格');
+  });
+
+  it('supports /models query', () => {
+    const result = handleUserCommand('/models', 'thread_old');
+    expect(result.handled).toBe(true);
+    expect(result.queryModels).toBe(true);
+  });
 });
 
 describe('commandNeedsDetailedSessions', () => {

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createApp } from './app.js';
 import { config } from './config.js';
 import { CodexRunner } from './services/codex-runner.js';
+import { formatCodexModelsText, loadCodexModels, resolveModelFromSnapshot } from './services/codex-models.js';
 import { WeComApi } from './services/wecom-api.js';
 import { FeishuApi } from './services/feishu-api.js';
 import { WeComCrypto } from './utils/wecom-crypto.js';
@@ -18,6 +19,7 @@ const log = createLogger('Server');
 log.info('服务启动初始化...', {
   port: config.port,
   codexBin: config.codexBin,
+  codexModel: config.codexModel ?? '(codex cli default)',
   codexWorkdir: config.codexWorkdir,
   commandTimeoutMs: config.commandTimeoutMs ?? '(adaptive)',
   commandTimeoutMinMs: config.commandTimeoutMinMs,
@@ -96,6 +98,7 @@ function clipMessage(message: string, maxLength = 1500): string {
 
 const userTaskQueue = new Map<string, Promise<void>>();
 const outboundSendQueue = new Map<string, Promise<void>>();
+const userModelOverrides = new Map<string, string>();
 
 function runInUserQueue(userId: string, task: () => Promise<void>): Promise<void> {
   const previous = userTaskQueue.get(userId) ?? Promise.resolve();
@@ -153,6 +156,7 @@ ${clipMessage(prompt, 500)}
 ════════════════════════════════════════════════════════════`);
 
       const existingThreadId = sessionStore.get(sessionUserKey);
+      const currentModel = userModelOverrides.get(sessionUserKey) ?? config.codexModel;
       const commandResult = handleUserCommand(
         prompt,
         existingThreadId,
@@ -180,6 +184,31 @@ ${clipMessage(prompt, 500)}
           }
           sessionStore.set(sessionUserKey, resolved);
           await sendText(channel, userId, `✅ 已切换到会话：${maskThreadId(resolved)}`);
+          return;
+        }
+        if (commandResult.queryModel) {
+          await sendText(channel, userId, `当前模型：${currentModel ?? '(codex cli 默认模型)'}`);
+          return;
+        }
+        if (commandResult.queryModels) {
+          await sendText(channel, userId, formatCodexModelsText(loadCodexModels()));
+          return;
+        }
+        if (commandResult.clearModel) {
+          userModelOverrides.delete(sessionUserKey);
+          await sendText(channel, userId, `✅ 已重置模型：${config.codexModel ?? '(codex cli 默认模型)'}`);
+          return;
+        }
+        if (commandResult.setModel) {
+          const snapshot = loadCodexModels();
+          const resolved = resolveModelFromSnapshot(commandResult.setModel, snapshot);
+          if (!resolved.ok || !resolved.model) {
+            await sendText(channel, userId, `❌ ${resolved.reason ?? '模型校验失败'}`);
+            return;
+          }
+          userModelOverrides.set(sessionUserKey, resolved.model);
+          const note = resolved.reason ? `\n⚠️ ${resolved.reason}` : '';
+          await sendText(channel, userId, `✅ 已切换模型为：${resolved.model}${note}`);
           return;
         }
         if (commandResult.message) {
@@ -212,6 +241,7 @@ ${clipMessage(prompt, 500)}
         const result = await codexRunner.run({
           prompt,
           threadId,
+          model: currentModel,
           // 每产出一条 agent_message 就实时推给用户
           onMessage: (text) => {
             log.info(`

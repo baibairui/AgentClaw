@@ -41,6 +41,7 @@ npm start
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（启用飞书时必填）
 - `FEISHU_VERIFICATION_TOKEN`（推荐，飞书事件回调 token 校验）
 - `CODEX_WORKDIR`（Codex 执行目录）
+- `CODEX_MODEL`（可选，默认模型）
 - `CODEX_SANDBOX`：`full-auto`（默认）或 `none`
 - `RUNNER_ENABLED`：`false` 时禁用执行，仅返回提示
 - `COMMAND_TIMEOUT_MS`：固定超时（可选）。不设时启用自适应超时
@@ -67,6 +68,10 @@ npm start
 - `/sessions`：查看历史会话列表（最近优先，含名称与最近问题摘要）
 - `/switch <编号|threadId>`：切换会话
 - `/rename <编号|threadId> <名称>`：重命名会话
+- `/model`：查看当前模型
+- `/model <模型名>`：切换当前用户模型
+- `/model reset`：重置为默认模型（`CODEX_MODEL` 或 Codex CLI 默认）
+- `/models`：查看当前 Codex 支持模型（读取本机 `~/.codex/models_cache.json`）
 
 推荐使用：
 - 先输入 `/sessions` 查看编号

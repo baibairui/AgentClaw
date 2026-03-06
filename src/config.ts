@@ -92,6 +92,7 @@ export const config = {
   rateLimitWindowSeconds: optionalNumber('RATE_LIMIT_WINDOW_SECONDS', 60),
   allowFrom: optionalString('ALLOW_FROM', '*'),
   codexBin: process.env.CODEX_BIN ?? 'codex',
+  codexModel: optionalStringUndefined('CODEX_MODEL'),
   codexWorkdir: process.env.CODEX_WORKDIR ?? process.cwd(),
   /** 'full-auto' (默认，有沙箱) 或 'none' (跳过沙箱，适合服务器) */
   codexSandbox: codexSandboxMode(),
