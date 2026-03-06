@@ -45,6 +45,8 @@ npm start
 - `CODEX_MODEL`（可选，默认模型）
 - `CODEX_SEARCH`（默认是否开启联网搜索）
 - `CODEX_SANDBOX`：`full-auto`（默认）或 `none`
+- `MEMORY_STEWARD_ENABLED`：是否启用系统默认的后台记忆管家（默认 `true`）
+- `MEMORY_STEWARD_INTERVAL_HOURS`：后台记忆管家运行周期（默认 `1` 小时）
 - `BROWSER_OPEN_ENABLED`：是否允许通过 `/open <URL>` 在宿主机打开浏览器
 - `BROWSER_OPEN_COMMAND`：可选，自定义浏览器打开命令
 - `RUNNER_ENABLED`：`false` 时禁用执行，仅返回提示
@@ -102,31 +104,57 @@ npm start
   global-memory/
     README.md
     shared-context.md
-    engineering-rules.md
+    house-rules.md
   users/
     <user-slug>-<hash>/
+      shared-memory/
+        README.md
+        profile.md
+        preferences.md
+        projects.md
+        relationships.md
+        decisions.md
+        open-loops.md
+        daily/
+          YYYY-MM-DD.md
+      _memory-steward/
+        AGENTS.md
+        agent.md
+        steward-log.md
       <agent-id>/
         AGENTS.md
         agent.md
         memory/
           profile.md
-          context.md
-          notes.md
+          preferences.md
+          projects.md
+          relationships.md
+          decisions.md
+          open-loops.md
+          daily/
+            YYYY-MM-DD.md
 ```
 
 说明：
 - `AGENTS.md` 是 Codex 自动读取的工作区规则入口。
 - `agent.md` 是该 agent 的主记忆索引。
-- `memory/*.md` 用于拆分 agent 私有记忆，避免单文件膨胀。
-- `global-memory/*.md` 用于沉淀所有 agent 共享的长期知识。
+- `shared-memory/` 是同一用户下所有 agent 共用的记忆层。
+- `_memory-steward/` 是系统后台工作区，定时运行，用于整理 shared-memory；不面向最终用户。
+- `memory/profile.md` / `preferences.md` / `projects.md` / `relationships.md` 用于保存 personal agent 的长期稳定信息。
+- `memory/decisions.md` 用于记录已确认的重要决定，`memory/open-loops.md` 用于记录未来还要继续跟进的事项。
+- `memory/daily/YYYY-MM-DD.md` 用于保存当天短期上下文和临时笔记。
+- `global-memory/*.md` 用于沉淀所有 agent 共享的背景和规则。
 - `/review` 和普通对话都会自动在当前 agent 的工作区里执行。
+- 系统默认会定期运行后台 `Memory Steward`，把 shared-memory 和各 agent 的 memory 做低噪声整理。
 
 推荐用法：
-1. 先输入 `/agent create 前端重构`
+1. 先输入 `/agent create 个人助理`
 2. 在生成的工作区里放项目代码或拉取仓库
-3. 将长期上下文写入 `agent.md` 和 `memory/*.md`
-4. 将跨 agent 的共识写入 `global-memory/*.md`
-5. 通过 `/agent use <编号>` 在多个 agent 之间切换
+3. 将用户画像、偏好、长期项目、关系信息分别整理到对应的 `memory/*.md`
+4. 将当天上下文和零散发现记到 `memory/daily/YYYY-MM-DD.md`
+5. 将跨 agent、跨会话的用户记忆沉淀到 `shared-memory/`
+6. 通过 `/agent use <编号>` 在多个 agent 之间切换
+7. 系统后台会定期运行 `Memory Steward`，整理 `shared-memory/`，无需用户手动创建
 
 ## 飞书接入说明
 

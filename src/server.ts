@@ -7,6 +7,7 @@ import { BrowserOpener } from './services/browser-opener.js';
 import { AgentWorkspaceManager } from './services/agent-workspace-manager.js';
 import { CodexRunner } from './services/codex-runner.js';
 import { createChatHandler } from './services/chat-handler.js';
+import { MemorySteward } from './services/memory-steward.js';
 import { WeComApi } from './services/wecom-api.js';
 import { FeishuApi } from './services/feishu-api.js';
 import { WeComCrypto } from './utils/wecom-crypto.js';
@@ -29,6 +30,8 @@ log.info('服务启动初始化...', {
   commandTimeoutMaxMs: config.commandTimeoutMaxMs,
   commandTimeoutPerCharMs: config.commandTimeoutPerCharMs,
   runnerEnabled: config.runnerEnabled,
+  memoryStewardEnabled: config.memoryStewardEnabled,
+  memoryStewardIntervalHours: config.memoryStewardIntervalHours,
   allowFrom: config.allowFrom,
   dedupWindowSeconds: config.dedupWindowSeconds,
   rateLimitMaxMessages: config.rateLimitMaxMessages,
@@ -159,6 +162,15 @@ const handleChatText = createChatHandler({
   sendText,
 });
 
+const memorySteward = new MemorySteward({
+  sessionStore,
+  agentWorkspaceManager,
+  codexRunner,
+  enabled: config.memoryStewardEnabled,
+  intervalMs: config.memoryStewardIntervalHours * 60 * 60_000,
+  model: config.codexModel,
+});
+
 const app = createApp({
   wecomCrypto,
   allowFrom: config.allowFrom,
@@ -191,4 +203,5 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
 
 app.listen(config.port, () => {
   log.info(`✅ wecom-codex gateway 已启动，监听 http://127.0.0.1:${config.port}`);
+  memorySteward.start();
 });

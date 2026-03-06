@@ -108,6 +108,28 @@ export class SessionStore {
     ];
   }
 
+  listKnownUsers(): string[] {
+    const rows = this.db
+      .prepare(`
+        SELECT DISTINCT user_id AS userId FROM (
+          SELECT user_id FROM user_session
+          UNION
+          SELECT user_id FROM user_history
+          UNION
+          SELECT user_id FROM user_current_agent
+          UNION
+          SELECT user_id FROM user_agent
+          UNION
+          SELECT user_id FROM user_agent_session
+          UNION
+          SELECT user_id FROM user_agent_history
+        )
+        ORDER BY user_id ASC
+      `)
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => String(row.userId ?? '')).filter(Boolean);
+  }
+
   createAgent(userId: string, input: { agentId: string; name: string; workspaceDir: string }): AgentRecord {
     const now = this.nextTimestamp();
     this.db

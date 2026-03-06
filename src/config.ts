@@ -101,6 +101,8 @@ export const config = {
   browserOpenEnabled: process.env.BROWSER_OPEN_ENABLED === 'true',
   browserOpenCommand: optionalStringUndefined('BROWSER_OPEN_COMMAND'),
   runnerEnabled: process.env.RUNNER_ENABLED !== 'false',
+  memoryStewardEnabled: process.env.MEMORY_STEWARD_ENABLED !== 'false',
+  memoryStewardIntervalHours: optionalNumber('MEMORY_STEWARD_INTERVAL_HOURS', 1),
 };
 
 if (config.feishuEnabled) {

@@ -66,4 +66,16 @@ describe('SessionStore', () => {
     store.renameSession('thread_front_1', '发布修复');
     expect(store.listDetailed('u1', 'frontend')[1]?.name).toBe('发布修复');
   });
+
+  it('lists known users across session and agent tables', () => {
+    const store = makeStore();
+    store.setSession('u1', 'default', 'thread_default_1', 'first prompt');
+    store.createAgent('u2', {
+      agentId: 'assistant',
+      name: '助理',
+      workspaceDir: '/tmp/assistant',
+    });
+
+    expect(store.listKnownUsers()).toEqual(['u1', 'u2']);
+  });
 });
