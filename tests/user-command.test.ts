@@ -48,6 +48,7 @@ describe('handleUserCommand', () => {
     expect(result.handled).toBe(true);
     expect(result.message).toContain('可用命令');
     expect(result.message).toContain('/agent create <名称>');
+    expect(result.message).toContain('/agent init-memory');
   });
 
   it('supports /clear', () => {
@@ -86,6 +87,11 @@ describe('handleUserCommand', () => {
     const create = handleUserCommand('/agent create 测试工作流', context);
     expect(create.handled).toBe(true);
     expect(create.createAgentName).toBe('测试工作流');
+    expect(create.createAgentTemplate).toBe('default');
+
+    const init = handleUserCommand('/agent init-memory', context);
+    expect(init.handled).toBe(true);
+    expect(init.initMemoryAgent).toBe(true);
 
     const useAgent = handleUserCommand('/agent use 2', context);
     expect(useAgent.handled).toBe(true);
@@ -153,6 +159,7 @@ describe('commandNeedsAgentList', () => {
     expect(commandNeedsAgentList('/agents')).toBe(true);
     expect(commandNeedsAgentList('/agent')).toBe(true);
     expect(commandNeedsAgentList('/agent use 2')).toBe(true);
+    expect(commandNeedsAgentList('/agent init-memory')).toBe(true);
   });
 
   it('returns false for other commands', () => {

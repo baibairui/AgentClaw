@@ -104,6 +104,7 @@ describe('createChatHandler', () => {
       },
       agentWorkspaceManager: {
         createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        isSharedMemoryEmpty: () => false,
       },
       browserOpenEnabled: false,
       runnerEnabled: true,
@@ -128,7 +129,10 @@ describe('createChatHandler', () => {
         run: async () => ({ threadId: 'thread_new', rawOutput: '' }),
         review: async () => ({ rawOutput: '' }),
       },
-      agentWorkspaceManager: { createWorkspace },
+      agentWorkspaceManager: {
+        createWorkspace,
+        isSharedMemoryEmpty: () => false,
+      },
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
@@ -144,6 +148,42 @@ describe('createChatHandler', () => {
       expect.stringContaining('已创建并切换到 agent：前端工作区 (frontend)'),
     );
     expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('frontend');
+  });
+
+  it('creates memory onboarding agent by command', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const createWorkspace = vi.fn(() => ({ agentId: 'memory-onboarding', workspaceDir: '/tmp/memory-onboarding' }));
+    const run = vi.fn(async () => ({ threadId: 'thread_onboarding', rawOutput: '' }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace,
+        isSharedMemoryEmpty: () => false,
+      },
+      browserOpenEnabled: false,
+      runnerEnabled: true,
+      defaultSearch: false,
+      sendText,
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: '/agent init-memory' });
+
+    expect(createWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+      template: 'memory-onboarding',
+    }));
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      workdir: '/tmp/memory-onboarding',
+      search: false,
+    }));
+    expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('memory-onboarding');
+    expect(sessionStore.getSession('wecom:u1', 'memory-onboarding')).toBe('thread_onboarding');
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('记忆初始化引导'));
   });
 
   it('runs codex in the current agent workspace', async () => {
@@ -166,6 +206,7 @@ describe('createChatHandler', () => {
       },
       agentWorkspaceManager: {
         createWorkspace: () => ({ agentId: 'frontend', workspaceDir: '/tmp/frontend' }),
+        isSharedMemoryEmpty: () => false,
       },
       browserOpenEnabled: false,
       runnerEnabled: true,
@@ -194,6 +235,7 @@ describe('createChatHandler', () => {
       },
       agentWorkspaceManager: {
         createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        isSharedMemoryEmpty: () => false,
       },
       browserOpener: { open },
       browserOpenEnabled: true,
@@ -206,5 +248,40 @@ describe('createChatHandler', () => {
 
     expect(open).toHaveBeenCalledWith('https://example.com');
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '✅ 已尝试打开浏览器：https://example.com');
+  });
+
+  it('auto switches to memory onboarding when shared memory is empty', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const run = vi.fn(async () => ({ threadId: 'thread_onboarding', rawOutput: '' }));
+    const sessionStore = createSessionStore();
+    const createWorkspace = vi.fn(() => ({ agentId: 'memory-onboarding', workspaceDir: '/tmp/memory-onboarding' }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace,
+        isSharedMemoryEmpty: () => true,
+      },
+      browserOpenEnabled: false,
+      runnerEnabled: true,
+      defaultSearch: false,
+      sendText,
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: '我们开始吧' });
+
+    expect(createWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+      template: 'memory-onboarding',
+    }));
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      workdir: '/tmp/memory-onboarding',
+      search: false,
+    }));
+    expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('memory-onboarding');
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('shared-memory 仍为空'));
   });
 });

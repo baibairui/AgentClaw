@@ -54,7 +54,9 @@ interface AgentWorkspaceManagerLike {
     userId: string;
     agentName: string;
     existingAgentIds: string[];
+    template?: 'default' | 'memory-onboarding';
   }): { agentId: string; workspaceDir: string };
+  isSharedMemoryEmpty(userId: string): boolean;
 }
 
 interface ChatHandlerDeps {
@@ -75,6 +77,23 @@ function clipMessage(message: string, maxLength = 1500): string {
     return message;
   }
   return `${message.slice(0, maxLength)}\n...(截断)`;
+}
+
+const MEMORY_ONBOARDING_AGENT_ID = 'memory-onboarding';
+const MEMORY_ONBOARDING_AGENT_NAME = '记忆初始化引导';
+const MEMORY_ONBOARDING_KICKOFF_PROMPT = [
+  '你是记忆初始化引导 agent，请立即开始第一轮访谈。',
+  '目标：帮助用户初始化 shared-memory。',
+  '要求：每轮最多 3 个问题，等待用户回答后再继续；每轮回答后总结并写入对应文件；敏感信息先确认再写。',
+  '第一轮聚焦 profile：preferred name, primary roles, timezone, long-term goals, stable facts。',
+].join('\n');
+
+function renderMemoryOnboardingMessage(workspaceDir: string): string {
+  return [
+    `✅ 已切换到记忆初始化引导 agent：${MEMORY_ONBOARDING_AGENT_NAME} (${MEMORY_ONBOARDING_AGENT_ID})`,
+    `工作区：${workspaceDir}`,
+    '正在开始第一轮初始化提问...',
+  ].join('\n');
 }
 
 export function createChatHandler(deps: ChatHandlerDeps) {
@@ -111,6 +130,75 @@ ${clipMessage(prompt, 500)}
         : [],
     });
 
+    async function startMemoryOnboarding(
+      onboardingAgent: { agentId: string; workspaceDir: string },
+      model: string | undefined,
+    ): Promise<void> {
+      if (!deps.rateLimitStore.allow(sessionUserKey)) {
+        await deps.sendText(channel, userId, '⏳ 初始化请求过于频繁，请稍后再试。');
+        return;
+      }
+      if (!deps.runnerEnabled) {
+        await deps.sendText(channel, userId, '⚠️ 当前服务已禁用命令执行，暂时无法开始初始化访谈。');
+        return;
+      }
+
+      let lastStreamSend: Promise<void> = Promise.resolve();
+      const onboardingThreadId = deps.sessionStore.getSession(sessionUserKey, onboardingAgent.agentId);
+      try {
+        const result = await deps.codexRunner.run({
+          prompt: MEMORY_ONBOARDING_KICKOFF_PROMPT,
+          threadId: onboardingThreadId,
+          model,
+          search: false,
+          workdir: onboardingAgent.workspaceDir,
+          onMessage: (text) => {
+            lastStreamSend = deps.sendText(channel, userId, text).catch((err) => {
+              log.error('startMemoryOnboarding onMessage 推送失败', err);
+            });
+          },
+        });
+        await lastStreamSend;
+        deps.sessionStore.setSession(sessionUserKey, onboardingAgent.agentId, result.threadId, 'memory onboarding kickoff');
+      } catch (error) {
+        log.error('startMemoryOnboarding 执行失败', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        await deps.sendText(channel, userId, '❌ 初始化引导启动失败，请稍后重试，或发送任意消息继续。');
+      }
+    }
+
+    function ensureMemoryOnboardingAgent(): AgentRecord {
+      const listedAgents = deps.sessionStore.listAgents(sessionUserKey);
+      const existing = listedAgents.find((item) => item.agentId === MEMORY_ONBOARDING_AGENT_ID);
+      if (existing) {
+        deps.sessionStore.setCurrentAgent(sessionUserKey, existing.agentId);
+        return {
+          agentId: existing.agentId,
+          name: existing.name,
+          workspaceDir: existing.workspaceDir,
+          createdAt: existing.createdAt,
+          updatedAt: existing.updatedAt,
+        };
+      }
+
+      const workspace = deps.agentWorkspaceManager.createWorkspace({
+        userId: sessionUserKey,
+        agentName: MEMORY_ONBOARDING_AGENT_NAME,
+        existingAgentIds: listedAgents.map((item) => item.agentId),
+        template: 'memory-onboarding',
+      });
+      const agent = deps.sessionStore.createAgent(sessionUserKey, {
+        agentId: workspace.agentId,
+        name: MEMORY_ONBOARDING_AGENT_NAME,
+        workspaceDir: workspace.workspaceDir,
+      });
+      deps.sessionStore.setCurrentAgent(sessionUserKey, agent.agentId);
+      return agent;
+    }
+
     if (commandResult.handled) {
       if (commandResult.clearSession) {
         deps.sessionStore.clearSession(sessionUserKey, currentAgent.agentId);
@@ -130,6 +218,7 @@ ${clipMessage(prompt, 500)}
           userId: sessionUserKey,
           agentName: commandResult.createAgentName,
           existingAgentIds: deps.sessionStore.listAgents(sessionUserKey).map((item) => item.agentId),
+          template: commandResult.createAgentTemplate,
         });
         const agent = deps.sessionStore.createAgent(sessionUserKey, {
           agentId: workspace.agentId,
@@ -146,6 +235,12 @@ ${clipMessage(prompt, 500)}
             `记忆入口：${agent.workspaceDir}/AGENTS.md`,
           ].join('\n'),
         );
+        return;
+      }
+      if (commandResult.initMemoryAgent) {
+        const agent = ensureMemoryOnboardingAgent();
+        await deps.sendText(channel, userId, renderMemoryOnboardingMessage(agent.workspaceDir));
+        await startMemoryOnboarding(agent, currentModel);
         return;
       }
       if (commandResult.useAgentTarget) {
@@ -294,6 +389,23 @@ ${clipMessage(text, 500)}
       if (commandResult.message) {
         await deps.sendText(channel, userId, commandResult.message);
       }
+      return;
+    }
+
+    if (
+      currentAgent.agentId !== MEMORY_ONBOARDING_AGENT_ID
+      && deps.agentWorkspaceManager.isSharedMemoryEmpty(sessionUserKey)
+    ) {
+      const agent = ensureMemoryOnboardingAgent();
+      await deps.sendText(
+        channel,
+        userId,
+        [
+          '🧭 检测到 shared-memory 仍为空，先进入记忆初始化引导。',
+          renderMemoryOnboardingMessage(agent.workspaceDir),
+        ].join('\n'),
+      );
+      await startMemoryOnboarding(agent, currentModel);
       return;
     }
 

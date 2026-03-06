@@ -27,6 +27,8 @@ export interface UserCommandResult {
   queryAgent?: boolean;
   queryAgents?: boolean;
   createAgentName?: string;
+  createAgentTemplate?: 'default' | 'memory-onboarding';
+  initMemoryAgent?: boolean;
   useAgentTarget?: string;
 }
 
@@ -101,6 +103,7 @@ export function handleUserCommand(content: string, context: UserCommandContext =
           '/agents - 查看 agent 列表',
           '/agent - 查看当前 agent',
           '/agent create <名称> - 创建独立 agent 工作区',
+          '/agent init-memory - 创建或切换到记忆初始化引导 agent',
           '/agent use <编号|agentId> - 切换 agent',
           '/model - 查看当前模型',
           '/model <模型名> - 切换模型',
@@ -161,6 +164,13 @@ export function handleUserCommand(content: string, context: UserCommandContext =
         return {
           handled: true,
           createAgentName: name,
+          createAgentTemplate: 'default',
+        };
+      }
+      if (sub === 'init-memory' || sub === 'init' || sub === 'bootstrap-memory') {
+        return {
+          handled: true,
+          initMemoryAgent: true,
         };
       }
       if (sub === 'use' || sub === 'switch') {
@@ -178,7 +188,7 @@ export function handleUserCommand(content: string, context: UserCommandContext =
       }
       return {
         handled: true,
-        message: '用法：/agent | /agent create <名称> | /agent use <编号|agentId>',
+        message: '用法：/agent | /agent create <名称> | /agent init-memory | /agent use <编号|agentId>',
       };
     }
     case '/switch': {
@@ -352,5 +362,14 @@ export function commandNeedsAgentList(content: string): boolean {
   const parts = raw.split(/\s+/).filter(Boolean);
   const cmd = (parts[0] ?? '').toLowerCase();
   const sub = (parts[1] ?? '').toLowerCase();
-  return cmd === '/agents' || (cmd === '/agent' && (sub === '' || sub === 'current' || sub === 'use' || sub === 'switch'));
+  return cmd === '/agents'
+    || (cmd === '/agent' && (
+      sub === ''
+      || sub === 'current'
+      || sub === 'use'
+      || sub === 'switch'
+      || sub === 'init-memory'
+      || sub === 'init'
+      || sub === 'bootstrap-memory'
+    ));
 }

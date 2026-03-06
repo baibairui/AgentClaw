@@ -76,6 +76,7 @@ npm start
 - `/agents`：查看当前用户的 agent 列表
 - `/agent`：查看当前激活的 agent、工作区和会话
 - `/agent create <名称>`：创建独立 agent 工作区并立即切换
+- `/agent init-memory`：创建或切换到“记忆初始化引导”agent
 - `/agent use <编号|agentId>`：切换到指定 agent
 - `/rename <编号|threadId> <名称>`：重命名会话
 - `/model`：查看当前模型
@@ -146,6 +147,7 @@ npm start
 - `global-memory/*.md` 用于沉淀所有 agent 共享的背景和规则。
 - `/review` 和普通对话都会自动在当前 agent 的工作区里执行。
 - 系统默认会定期运行后台 `Memory Steward`，把 shared-memory 和各 agent 的 memory 做低噪声整理。
+- 当检测到 `shared-memory` 为空时，用户首次发送普通消息会自动切换到记忆初始化引导 agent。
 
 推荐用法：
 1. 先输入 `/agent create 个人助理`
@@ -155,6 +157,11 @@ npm start
 5. 将跨 agent、跨会话的用户记忆沉淀到 `shared-memory/`
 6. 通过 `/agent use <编号>` 在多个 agent 之间切换
 7. 系统后台会定期运行 `Memory Steward`，整理 `shared-memory/`，无需用户手动创建
+
+首次初始化记忆推荐：
+1. 先输入 `/agent init-memory`
+2. 按引导 agent 的问题分轮回答（每轮只填少量信息）
+3. 确认后由引导 agent 写入 shared-memory 对应文件
 
 ## 飞书接入说明
 

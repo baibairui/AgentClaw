@@ -16,6 +16,7 @@ interface CreateAgentWorkspaceInput {
   userId: string;
   agentName: string;
   existingAgentIds: string[];
+  template?: 'default' | 'memory-onboarding';
 }
 
 export class AgentWorkspaceManager {
@@ -35,6 +36,7 @@ export class AgentWorkspaceManager {
     const userDir = this.resolveUserDir(input.userId);
     const sharedMemoryDir = this.ensureUserSharedMemory(userDir);
     const workspaceDir = path.join(userDir, agentId);
+    const template = input.template ?? 'default';
 
     fs.mkdirSync(path.join(workspaceDir, 'memory', 'daily'), { recursive: true });
 
@@ -45,11 +47,12 @@ export class AgentWorkspaceManager {
         agentId,
         path.relative(workspaceDir, this.globalMemoryDir),
         path.relative(workspaceDir, sharedMemoryDir),
+        template,
       ),
     );
     this.writeIfMissing(
       path.join(workspaceDir, 'agent.md'),
-      renderAgentMd(input.agentName, agentId),
+      renderAgentMd(input.agentName, agentId, template),
     );
     this.writeIfMissing(
       path.join(workspaceDir, 'memory', 'profile.md'),
@@ -81,13 +84,43 @@ export class AgentWorkspaceManager {
     );
     this.writeIfMissing(
       path.join(workspaceDir, 'README.md'),
-      renderWorkspaceReadme(input.agentName, agentId),
+      renderWorkspaceReadme(input.agentName, agentId, template),
     );
+    if (template === 'memory-onboarding') {
+      this.writeIfMissing(
+        path.join(workspaceDir, 'memory-init-checklist.md'),
+        renderMemoryInitChecklist(),
+      );
+    }
 
     return {
       agentId,
       workspaceDir,
     };
+  }
+
+  isSharedMemoryEmpty(userId: string): boolean {
+    const userDir = this.resolveUserDir(userId);
+    const sharedMemoryDir = this.ensureUserSharedMemory(userDir);
+    const files = [
+      'profile.md',
+      'preferences.md',
+      'projects.md',
+      'relationships.md',
+      'decisions.md',
+      'open-loops.md',
+    ];
+    for (const fileName of files) {
+      const filePath = path.join(sharedMemoryDir, fileName);
+      if (!fs.existsSync(filePath)) {
+        continue;
+      }
+      const content = fs.readFileSync(filePath, 'utf8');
+      if (hasMeaningfulMemoryContent(content)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   ensureSystemMemoryStewardWorkspace(userId: string): SystemMemoryStewardWorkspaceRecord {
@@ -202,14 +235,26 @@ function renderWorkspaceAgentsMd(
   agentId: string,
   relativeGlobalDir: string,
   relativeSharedDir: string,
+  template: 'default' | 'memory-onboarding',
 ): string {
   const globalDir = normalizeRelativeDir(relativeGlobalDir);
   const sharedDir = normalizeRelativeDir(relativeSharedDir);
+  const onboardingRules = template === 'memory-onboarding'
+    ? [
+        '初始化职责：',
+        '- 你不是通用助手；你的主要职责是引导用户完成记忆初始化。',
+        '- 必须分轮次提问，每轮最多 3 个问题，等待用户回答后再继续。',
+        '- 每轮总结并写入 shared-memory 对应文件，再继续下一轮。',
+        '- 遇到敏感信息先确认“是否写入长期记忆”。',
+        '',
+      ]
+    : [];
   return [
     `# AGENTS.md`,
     '',
     `当前工作区属于 agent \`${agentName}\`（ID: \`${agentId}\`）。`,
     '',
+    ...onboardingRules,
     '开始任何任务前，先阅读这些记忆文件：',
     '- `./agent.md`',
     '- `./memory/profile.md`',
@@ -238,15 +283,24 @@ function renderWorkspaceAgentsMd(
   ].join('\n');
 }
 
-function renderAgentMd(agentName: string, agentId: string): string {
+function renderAgentMd(agentName: string, agentId: string, template: 'default' | 'memory-onboarding'): string {
+  const role = template === 'memory-onboarding'
+    ? '- Role: Memory Onboarding Guide'
+    : '- Role:';
+  const goals = template === 'memory-onboarding'
+    ? '- Primary Goals: Guide the user to initialize shared-memory with confirmed facts and preferences'
+    : '- Primary Goals:';
+  const boundaries = template === 'memory-onboarding'
+    ? '- Boundaries: Ask before writing sensitive details; keep each round short and structured'
+    : '- Boundaries:';
   return [
     '# Agent Memory Index',
     '',
     `- Agent Name: ${agentName}`,
     `- Agent ID: ${agentId}`,
-    '- Role:',
-    '- Primary Goals:',
-    '- Boundaries:',
+    role,
+    goals,
+    boundaries,
     '- Notes:',
     '',
     '记忆地图：',
@@ -261,7 +315,18 @@ function renderAgentMd(agentName: string, agentId: string): string {
   ].join('\n');
 }
 
-function renderWorkspaceReadme(agentName: string, agentId: string): string {
+function renderWorkspaceReadme(agentName: string, agentId: string, template: 'default' | 'memory-onboarding'): string {
+  const tips = template === 'memory-onboarding'
+    ? [
+        '- 该 agent 用于一次性或阶段性初始化 shared-memory。',
+        '- 使用 `memory-init-checklist.md` 跟踪初始化进度。',
+        '- 每轮提问后都要把已确认信息写入 shared-memory。',
+      ]
+    : [
+        '- 用户的长期稳定信息维护在 `memory/*.md`。',
+        '- 当天短期上下文和临时笔记维护在 `memory/daily/`。',
+        '- 跨 agent 共享的知识和规则维护在上层 `global-memory/`。',
+      ];
   return [
     `# ${agentName}`,
     '',
@@ -269,9 +334,27 @@ function renderWorkspaceReadme(agentName: string, agentId: string): string {
     '',
     '建议：',
     '- 项目代码直接放在当前目录或其子目录。',
-    '- 用户的长期稳定信息维护在 `memory/*.md`。',
-    '- 当天短期上下文和临时笔记维护在 `memory/daily/`。',
-    '- 跨 agent 共享的知识和规则维护在上层 `global-memory/`。',
+    ...tips,
+    '',
+  ].join('\n');
+}
+
+function renderMemoryInitChecklist(): string {
+  return [
+    '# Memory Init Checklist',
+    '',
+    '## Progress',
+    '- [ ] Round 1: Profile (name, roles, timezone, long-term goals)',
+    '- [ ] Round 2: Preferences (language, response style, work style)',
+    '- [ ] Round 3: Projects (active projects, goals, constraints, next steps)',
+    '- [ ] Round 4: Relationships (important people and communication notes)',
+    '- [ ] Round 5: Decisions & Open Loops',
+    '',
+    '## Safety',
+    '- [ ] Sensitive items were explicitly confirmed before writing to shared-memory',
+    '',
+    '## Notes',
+    '-',
     '',
   ].join('\n');
 }
@@ -466,4 +549,23 @@ function shortHash(input: string): string {
 function normalizeRelativeDir(relativeDir: string): string {
   const normalized = relativeDir.split(path.sep).join('/');
   return normalized.startsWith('.') ? normalized : `./${normalized}`;
+}
+
+function hasMeaningfulMemoryContent(content: string): boolean {
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#') || line.startsWith('>')) {
+      continue;
+    }
+    if (line === '-' || line.startsWith('- [ ]')) {
+      continue;
+    }
+    if (/: +\S/.test(line)) {
+      return true;
+    }
+    if (/^-\s+\S/.test(line) && !line.endsWith(':')) {
+      return true;
+    }
+  }
+  return false;
 }
