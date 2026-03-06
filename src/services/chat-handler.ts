@@ -2,6 +2,7 @@ import { commandNeedsAgentList, commandNeedsDetailedSessions, handleUserCommand,
 import type { AgentListItem, AgentRecord, SessionListItem } from '../stores/session-store.js';
 import { formatCodexModelsText, loadCodexModels, resolveModelFromSnapshot } from './codex-models.js';
 import { ReminderScheduler, type ReminderTask, type ScheduleReminderInput } from './reminder-scheduler.js';
+import { extractReminderActionsFromAssistantText } from './reminder-action-parser.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('ChatHandler');
@@ -534,23 +535,6 @@ ${clipMessage(text, 500)}
         await deps.sendText(channel, userId, `✅ 已${commandResult.setSearchEnabled ? '开启' : '关闭'}联网搜索`);
         return;
       }
-      if (typeof commandResult.scheduleReminderDelayMs === 'number' && commandResult.scheduleReminderMessage) {
-        const task = reminderScheduler.schedule({
-          channel,
-          userId,
-          delayMs: commandResult.scheduleReminderDelayMs,
-          message: commandResult.scheduleReminderMessage,
-        }, async (triggeredTask) => {
-          await deps.sendText(channel, userId, `⏰ 定时提醒：${triggeredTask.message}`);
-        });
-        const dueAt = new Date(task.dueAt).toLocaleString('zh-CN', { hour12: false });
-        await deps.sendText(
-          channel,
-          userId,
-          `✅ 已创建提醒：${formatDelay(commandResult.scheduleReminderDelayMs)}后（约 ${dueAt}）我会提醒你：${commandResult.scheduleReminderMessage}\n提示：该提醒为进程内定时任务，服务重启后不会保留。`,
-        );
-        return;
-      }
       if (commandResult.openUrl) {
         if (!deps.browserOpenEnabled || !deps.browserOpener) {
           await deps.sendText(channel, userId, '⚠️ 当前服务未开启浏览器打开能力，请联系管理员。');
@@ -713,13 +697,42 @@ ${clipMessage(text, 500)}
         workdir: runtimeAgent.workspaceDir,
         onMessage: (text) => {
           const output = isSystemAgentId(currentAgent.agentId) ? sanitizeOnboardingText(text) : text;
+          const reminderParsed = extractReminderActionsFromAssistantText(output);
+          for (const action of reminderParsed.actions) {
+            const task = reminderScheduler.schedule({
+              channel,
+              userId,
+              delayMs: action.delayMs,
+              message: action.message,
+            }, async (triggeredTask) => {
+              await deps.sendText(channel, userId, `⏰ 定时提醒：${triggeredTask.message}`);
+            });
+            const dueAt = new Date(task.dueAt).toLocaleString('zh-CN', { hour12: false });
+            void deps.sendText(
+              channel,
+              userId,
+              `✅ 已创建提醒：${formatDelay(action.delayMs)}后（约 ${dueAt}）我会提醒你：${action.message}\n提示：该提醒为进程内定时任务，服务重启后不会保留。`,
+            ).catch((err) => {
+              log.error('handleText reminder ack 推送失败', err);
+            });
+          }
+          for (const parseError of reminderParsed.errors) {
+            log.warn('handleText reminder action 解析失败', {
+              userId,
+              error: parseError,
+            });
+          }
+          const userVisibleOutput = reminderParsed.userText;
           log.info(`
 ════════════════════════════════════════════════════════════
 🤖 Codex 回复  [${channel}:${userId}]
 ────────────────────────────────────────────────────────────
-${clipMessage(output, 500)}
+${clipMessage(userVisibleOutput, 500)}
 ════════════════════════════════════════════════════════════`);
-          lastStreamSend = deps.sendText(channel, userId, output).catch((err) => {
+          if (!userVisibleOutput) {
+            return;
+          }
+          lastStreamSend = deps.sendText(channel, userId, userVisibleOutput).catch((err) => {
             log.error('handleText onMessage 推送失败', err);
           });
         },

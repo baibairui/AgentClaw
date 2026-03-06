@@ -147,11 +147,10 @@ describe('handleUserCommand', () => {
     expect(handleUserCommand('/review base main', context).reviewTarget).toBe('main');
   });
 
-  it('supports /remind command', () => {
+  it('marks /remind as deprecated', () => {
     const result = handleUserCommand('/remind 5min 喝水', context);
     expect(result.handled).toBe(true);
-    expect(result.scheduleReminderDelayMs).toBe(5 * 60 * 1000);
-    expect(result.scheduleReminderMessage).toBe('喝水');
+    expect(result.message).toContain('已废弃');
   });
 });
 

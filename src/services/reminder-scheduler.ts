@@ -20,6 +20,7 @@ type ReminderCallback = (task: ReminderTask) => Promise<void> | void;
 
 export class ReminderScheduler {
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  private static readonly MAX_TIMEOUT_MS = 2_147_483_647;
 
   schedule(input: ScheduleReminderInput, onTrigger: ReminderCallback): ReminderTask {
     const now = Date.now();
@@ -35,12 +36,25 @@ export class ReminderScheduler {
       dueAt,
     };
 
-    const timer = setTimeout(async () => {
-      this.timers.delete(id);
-      await onTrigger(task);
-    }, delayMs);
-    timer.unref?.();
-    this.timers.set(id, timer);
+    const scheduleStep = (remainingMs: number): void => {
+      const nextDelayMs = Math.min(remainingMs, ReminderScheduler.MAX_TIMEOUT_MS);
+      const timer = setTimeout(async () => {
+        if (remainingMs > ReminderScheduler.MAX_TIMEOUT_MS) {
+          scheduleStep(remainingMs - ReminderScheduler.MAX_TIMEOUT_MS);
+          return;
+        }
+        this.timers.delete(id);
+        try {
+          await onTrigger(task);
+        } catch {
+          // Swallow trigger errors to avoid unhandled rejection from timer callback.
+        }
+      }, nextDelayMs);
+      timer.unref?.();
+      this.timers.set(id, timer);
+    };
+
+    scheduleStep(delayMs);
     return task;
   }
 }

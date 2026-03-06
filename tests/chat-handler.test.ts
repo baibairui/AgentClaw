@@ -329,9 +329,19 @@ describe('createChatHandler', () => {
     expect(sessionStore.getSession('wecom:u1', 'frontend')).toBe('thread_new');
   });
 
-  it('creates reminder task from /remind command', async () => {
+  it('creates reminder task from assistant reminder-action block', async () => {
     const sendText = vi.fn(async () => undefined);
-    const run = vi.fn(async () => ({ threadId: 'thread_new', rawOutput: '' }));
+    const run = vi.fn(async (input: {
+      onMessage?: (text: string) => void;
+    }) => {
+      input.onMessage?.([
+        '好的，我来帮你设置提醒。',
+        '```reminder-action',
+        '{"delay":"5min","message":"喝水"}',
+        '```',
+      ].join('\n'));
+      return { threadId: 'thread_new', rawOutput: '' };
+    });
     const schedule = vi.fn((input: { channel: 'wecom' | 'feishu'; userId: string; delayMs: number; message: string }, _onTrigger: (task: {
       id: string;
       channel: 'wecom' | 'feishu';
@@ -366,7 +376,7 @@ describe('createChatHandler', () => {
       sendText,
     });
 
-    await handler({ channel: 'wecom', userId: 'u1', content: '/remind 5min 喝水' });
+    await handler({ channel: 'wecom', userId: 'u1', content: '5分钟后提醒我喝水' });
 
     expect(schedule).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -377,7 +387,8 @@ describe('createChatHandler', () => {
       }),
       expect.any(Function),
     );
-    expect(run).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('好的，我来帮你设置提醒。'));
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('已创建提醒'));
   });
 
