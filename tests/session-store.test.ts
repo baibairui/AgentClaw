@@ -78,4 +78,30 @@ describe('SessionStore', () => {
 
     expect(store.listKnownUsers()).toEqual(['u1', 'u2']);
   });
+
+  it('hides system agents from list but can include them for internal logic', () => {
+    const store = makeStore();
+    store.createAgent('u1', {
+      agentId: 'memory-onboarding',
+      name: '记忆初始化引导',
+      workspaceDir: '/tmp/memory-onboarding',
+    });
+    store.createAgent('u1', {
+      agentId: 'memory-onboarding-2',
+      name: '记忆初始化引导-2',
+      workspaceDir: '/tmp/memory-onboarding-2',
+    });
+    store.createAgent('u1', {
+      agentId: 'assistant',
+      name: '助理',
+      workspaceDir: '/tmp/assistant',
+    });
+
+    const visible = store.listAgents('u1');
+    const all = store.listAgents('u1', { includeHidden: true });
+    expect(visible.some((item) => item.agentId.startsWith('memory-onboarding'))).toBe(false);
+    expect(all.some((item) => item.agentId === 'memory-onboarding')).toBe(true);
+    expect(all.some((item) => item.agentId === 'memory-onboarding-2')).toBe(true);
+    expect(store.resolveAgentTarget('u1', 'memory-onboarding')).toBeUndefined();
+  });
 });

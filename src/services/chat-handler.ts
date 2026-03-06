@@ -9,7 +9,7 @@ type Channel = 'wecom' | 'feishu';
 
 interface SessionStoreLike {
   getCurrentAgent(userId: string): AgentRecord;
-  listAgents(userId: string): AgentListItem[];
+  listAgents(userId: string, options?: { includeHidden?: boolean }): AgentListItem[];
   createAgent(userId: string, input: { agentId: string; name: string; workspaceDir: string }): AgentRecord;
   setCurrentAgent(userId: string, agentId: string): boolean;
   resolveAgentTarget(userId: string, target: string): string | undefined;
@@ -92,7 +92,7 @@ const MEMORY_ONBOARDING_KICKOFF_PROMPT = [
 ].join('\n');
 
 /** 系统内置 agent（不展示给用户，不允许通过 /agents 切换）的 ID 集合 */
-const SYSTEM_AGENT_IDS = new Set<string>([MEMORY_ONBOARDING_AGENT_ID]);
+const SYSTEM_AGENT_ID_PREFIXES = [MEMORY_ONBOARDING_AGENT_ID];
 
 function renderMemoryOnboardingStartMessage(): string {
   return [
@@ -107,6 +107,10 @@ function renderMemoryOnboardingPendingMessage(): string {
 
 function renderMemoryOnboardingResumeMessage(): string {
   return '🧭 记忆初始化已在进行中，请继续回答当前问题即可。';
+}
+
+function isSystemAgentId(agentId: string): boolean {
+  return SYSTEM_AGENT_ID_PREFIXES.some((prefix) => agentId === prefix || agentId.startsWith(`${prefix}-`));
 }
 
 export function createChatHandler(deps: ChatHandlerDeps) {
@@ -135,8 +139,8 @@ ${clipMessage(prompt, 500)}
     const currentModel = userModelOverrides.get(sessionUserKey) ?? deps.defaultModel;
     const currentSearch = userSearchOverrides.get(sessionUserKey) ?? deps.defaultSearch;
     // 对用户展示时，过滤掉系统内置 agent（如 memory-onboarding）
-    const allAgents = commandNeedsAgentList(prompt) ? deps.sessionStore.listAgents(sessionUserKey) : [];
-    const agents = allAgents.filter((a) => !SYSTEM_AGENT_IDS.has(a.agentId));
+    const allAgents = commandNeedsAgentList(prompt) ? deps.sessionStore.listAgents(sessionUserKey, { includeHidden: true }) : [];
+    const agents = allAgents.filter((a) => !isSystemAgentId(a.agentId));
     const commandResult = handleUserCommand(prompt, {
       currentThreadId: existingThreadId,
       currentAgent,
@@ -192,7 +196,7 @@ ${clipMessage(prompt, 500)}
     }
 
     function ensureMemoryOnboardingAgent(): AgentRecord {
-      const listedAgents = deps.sessionStore.listAgents(sessionUserKey);
+      const listedAgents = deps.sessionStore.listAgents(sessionUserKey, { includeHidden: true });
       const existing = listedAgents.find((item) => item.agentId === MEMORY_ONBOARDING_AGENT_ID);
       if (existing) {
         return {
@@ -220,13 +224,13 @@ ${clipMessage(prompt, 500)}
 
     function normalizeVisibleCurrentAgent(userKey: string): AgentRecord {
       const selected = deps.sessionStore.getCurrentAgent(userKey);
-      if (!SYSTEM_AGENT_IDS.has(selected.agentId)) {
+      if (!isSystemAgentId(selected.agentId)) {
         return selected;
       }
 
-      const listedAgents = deps.sessionStore.listAgents(userKey);
-      const customFallback = listedAgents.find((item) => !item.isDefault && !SYSTEM_AGENT_IDS.has(item.agentId));
-      const fallback = customFallback ?? listedAgents.find((item) => !SYSTEM_AGENT_IDS.has(item.agentId));
+      const listedAgents = deps.sessionStore.listAgents(userKey, { includeHidden: true });
+      const customFallback = listedAgents.find((item) => !item.isDefault && !isSystemAgentId(item.agentId));
+      const fallback = customFallback ?? listedAgents.find((item) => !isSystemAgentId(item.agentId));
       if (fallback) {
         deps.sessionStore.setCurrentAgent(userKey, fallback.agentId);
         return deps.sessionStore.getCurrentAgent(userKey);
@@ -252,7 +256,7 @@ ${clipMessage(prompt, 500)}
         const workspace = deps.agentWorkspaceManager.createWorkspace({
           userId: sessionUserKey,
           agentName: commandResult.createAgentName,
-          existingAgentIds: deps.sessionStore.listAgents(sessionUserKey).map((item) => item.agentId),
+          existingAgentIds: deps.sessionStore.listAgents(sessionUserKey, { includeHidden: true }).map((item) => item.agentId),
           template: commandResult.createAgentTemplate,
         });
         const agent = deps.sessionStore.createAgent(sessionUserKey, {

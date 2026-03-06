@@ -445,6 +445,7 @@ function renderPreferencesMemory(): string {
     '- Default language:',
     '',
     '## Response Style',
+    '- 默认慢节奏引导：先澄清目标，再分步提问，帮助用户产出更有意义的结果',
     '-',
     '',
     '## Work Style',

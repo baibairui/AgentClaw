@@ -5,6 +5,7 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('SessionStore');
 const DEFAULT_AGENT_ID = 'default';
+const HIDDEN_AGENT_ID_PREFIXES = ['memory-onboarding'];
 
 export interface SessionMeta {
   name?: string;
@@ -72,7 +73,8 @@ export class SessionStore {
     return custom ?? this.getDefaultAgent();
   }
 
-  listAgents(userId: string): AgentListItem[] {
+  listAgents(userId: string, options: { includeHidden?: boolean } = {}): AgentListItem[] {
+    const includeHidden = options.includeHidden ?? false;
     const currentAgentId = this.getCurrentAgent(userId).agentId;
     const rows = this.db
       .prepare(`
@@ -88,7 +90,8 @@ export class SessionStore {
       `)
       .all(userId) as Array<Record<string, unknown>>;
 
-    const customAgents = rows.map((row) => ({
+    const customAgents = rows
+      .map((row) => ({
       agentId: String(row.agentId ?? ''),
       name: String(row.name ?? ''),
       workspaceDir: String(row.workspaceDir ?? ''),
@@ -96,7 +99,8 @@ export class SessionStore {
       updatedAt: numberRow(row.updatedAt),
       current: currentAgentId === row.agentId,
       isDefault: false,
-    }));
+      }))
+      .filter((agent) => includeHidden || !isHiddenAgentId(agent.agentId));
 
     return [
       {
@@ -178,6 +182,9 @@ export class SessionStore {
     }
     if (raw === DEFAULT_AGENT_ID) {
       return DEFAULT_AGENT_ID;
+    }
+    if (isHiddenAgentId(raw)) {
+      return undefined;
     }
     return this.getCustomAgent(userId, raw)?.agentId;
   }
@@ -540,4 +547,8 @@ function mapSessionListItem(row: Record<string, unknown>): SessionListItem {
 
 function numberRow(value: unknown): number {
   return typeof value === 'number' ? value : 0;
+}
+
+function isHiddenAgentId(agentId: string): boolean {
+  return HIDDEN_AGENT_ID_PREFIXES.some((prefix) => agentId === prefix || agentId.startsWith(`${prefix}-`));
 }
