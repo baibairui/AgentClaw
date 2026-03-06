@@ -180,7 +180,7 @@ export class CodexRunner {
       child.stdout.on('data', (chunk: Buffer) => {
         const text = chunk.toString('utf8');
         stdoutBuf += text;
-        const sendText = text.trim();
+        const sendText = stripAnsi(text).trim();
         if (sendText && input.onMessage) {
           input.onMessage(sendText);
         }
@@ -489,4 +489,10 @@ function handleCodexLine(
   } catch {
     log.debug('Codex stdout 非 JSON 行', { line: line.substring(0, 100) });
   }
+}
+
+/** 移除终端输出中的 ANSI 控制（颜色）字符 */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
 }
