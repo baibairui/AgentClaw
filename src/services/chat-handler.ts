@@ -161,6 +161,18 @@ function sanitizeOnboardingText(text: string): string {
     .replace(/shared-memory|memory\/|AGENTS\.md|agent\.md|profile\.md|preferences\.md|projects\.md|relationships\.md|decisions\.md|open-loops\.md/gi, '长期记忆');
 }
 
+function buildRuntimePrompt(userPrompt: string): string {
+  return [
+    '执行规范（每次回复都要先完成）：',
+    '- 先读取 `./AGENTS.md`。',
+    '- 严格执行其中“开始任何任务前，先阅读这些记忆文件”的要求。',
+    '- 如果某个记忆文件不存在，请明确说明后继续，不要编造已读取内容。',
+    '',
+    '用户消息：',
+    userPrompt,
+  ].join('\n');
+}
+
 export function createChatHandler(deps: ChatHandlerDeps) {
   const userModelOverrides = new Map<string, string>();
   const userSearchOverrides = new Map<string, boolean>();
@@ -666,8 +678,9 @@ ${clipMessage(text, 500)}
       });
 
       const startTime = Date.now();
+      const runtimePrompt = buildRuntimePrompt(prompt);
       const result = await deps.codexRunner.run({
-        prompt,
+        prompt: runtimePrompt,
         threadId: runtimeThreadId,
         model: currentModel,
         search: runtimeSearch,

@@ -452,7 +452,7 @@ describe('createChatHandler', () => {
     await handler({ channel: 'wecom', userId: 'u1', content: '我叫 Alice' });
 
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: '我叫 Alice',
+      prompt: expect.stringContaining('用户消息：\n我叫 Alice'),
       threadId: 'thread_onboarding',
       workdir: '/tmp/memory-onboarding',
     }));
