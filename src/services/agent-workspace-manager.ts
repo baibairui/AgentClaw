@@ -19,6 +19,8 @@ interface CreateAgentWorkspaceInput {
   template?: 'default' | 'memory-onboarding';
 }
 
+const MEMORY_ONBOARDING_AGENT_ID = 'memory-onboarding';
+
 export class AgentWorkspaceManager {
   private readonly rootDir: string;
   private readonly globalMemoryDir: string;
@@ -32,7 +34,7 @@ export class AgentWorkspaceManager {
   createWorkspace(input: CreateAgentWorkspaceInput): AgentWorkspaceRecord {
     this.ensureGlobalMemory();
 
-    const agentId = createUniqueAgentId(input.agentName, input.existingAgentIds);
+    const agentId = resolveAgentId(input);
     const userDir = this.resolveUserDir(input.userId);
     const sharedMemoryDir = this.ensureUserSharedMemory(userDir);
     const workspaceDir = path.join(userDir, agentId);
@@ -531,6 +533,13 @@ function createUniqueAgentId(name: string, existingAgentIds: string[]): string {
     counter += 1;
   }
   return `${base}-${counter}`;
+}
+
+function resolveAgentId(input: CreateAgentWorkspaceInput): string {
+  if (input.template === 'memory-onboarding') {
+    return MEMORY_ONBOARDING_AGENT_ID;
+  }
+  return createUniqueAgentId(input.agentName, input.existingAgentIds);
 }
 
 function toSlug(input: string, fallback: string): string {

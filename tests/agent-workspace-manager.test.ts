@@ -59,6 +59,7 @@ describe('AgentWorkspaceManager', () => {
     const agentsMd = fs.readFileSync(path.join(result.workspaceDir, 'AGENTS.md'), 'utf8');
     const checklist = fs.readFileSync(path.join(result.workspaceDir, 'memory-init-checklist.md'), 'utf8');
 
+    expect(result.agentId).toBe('memory-onboarding');
     expect(agentsMd).toContain('初始化职责');
     expect(checklist).toContain('Round 1: Profile');
   });

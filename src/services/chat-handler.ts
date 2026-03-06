@@ -94,17 +94,25 @@ const MEMORY_ONBOARDING_KICKOFF_PROMPT = [
 /** 系统内置 agent（不展示给用户，不允许通过 /agents 切换）的 ID 集合 */
 const SYSTEM_AGENT_IDS = new Set<string>([MEMORY_ONBOARDING_AGENT_ID]);
 
-function renderMemoryOnboardingMessage(workspaceDir: string): string {
+function renderMemoryOnboardingStartMessage(): string {
   return [
-    `✅ 已切换到记忆初始化引导 agent：${MEMORY_ONBOARDING_AGENT_NAME} (${MEMORY_ONBOARDING_AGENT_ID})`,
-    `工作区：${workspaceDir}`,
-    '正在开始第一轮初始化提问...',
+    '🧭 已开始记忆初始化引导。',
+    '接下来会按轮次提问，并把确认后的信息写入 shared-memory。',
   ].join('\n');
+}
+
+function renderMemoryOnboardingPendingMessage(): string {
+  return '🧭 记忆初始化引导正在启动，请先等待当前问题发出后再继续回复。';
+}
+
+function renderMemoryOnboardingResumeMessage(): string {
+  return '🧭 记忆初始化已在进行中，请继续回答当前问题即可。';
 }
 
 export function createChatHandler(deps: ChatHandlerDeps) {
   const userModelOverrides = new Map<string, string>();
   const userSearchOverrides = new Map<string, boolean>();
+  const onboardingKickoffInFlight = new Set<string>();
 
   return async function handleText(input: { channel: Channel; userId: string; content: string }): Promise<void> {
     const { channel, userId, content } = input;
@@ -122,7 +130,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
 ${clipMessage(prompt, 500)}
 ════════════════════════════════════════════════════════════`);
 
-    const currentAgent = deps.sessionStore.getCurrentAgent(sessionUserKey);
+    const currentAgent = normalizeVisibleCurrentAgent(sessionUserKey);
     const existingThreadId = deps.sessionStore.getSession(sessionUserKey, currentAgent.agentId);
     const currentModel = userModelOverrides.get(sessionUserKey) ?? deps.defaultModel;
     const currentSearch = userSearchOverrides.get(sessionUserKey) ?? deps.defaultSearch;
@@ -142,11 +150,14 @@ ${clipMessage(prompt, 500)}
       onboardingAgent: { agentId: string; workspaceDir: string },
       model: string | undefined,
     ): Promise<void> {
+      onboardingKickoffInFlight.add(sessionUserKey);
       if (!deps.rateLimitStore.allow(sessionUserKey)) {
+        onboardingKickoffInFlight.delete(sessionUserKey);
         await deps.sendText(channel, userId, '⏳ 初始化请求过于频繁，请稍后再试。');
         return;
       }
       if (!deps.runnerEnabled) {
+        onboardingKickoffInFlight.delete(sessionUserKey);
         await deps.sendText(channel, userId, '⚠️ 当前服务已禁用命令执行，暂时无法开始初始化访谈。');
         return;
       }
@@ -175,6 +186,8 @@ ${clipMessage(prompt, 500)}
           stack: error instanceof Error ? error.stack : undefined,
         });
         await deps.sendText(channel, userId, '❌ 初始化引导启动失败，请稍后重试，或发送任意消息继续。');
+      } finally {
+        onboardingKickoffInFlight.delete(sessionUserKey);
       }
     }
 
@@ -182,7 +195,6 @@ ${clipMessage(prompt, 500)}
       const listedAgents = deps.sessionStore.listAgents(sessionUserKey);
       const existing = listedAgents.find((item) => item.agentId === MEMORY_ONBOARDING_AGENT_ID);
       if (existing) {
-        deps.sessionStore.setCurrentAgent(sessionUserKey, existing.agentId);
         return {
           agentId: existing.agentId,
           name: existing.name,
@@ -203,8 +215,23 @@ ${clipMessage(prompt, 500)}
         name: MEMORY_ONBOARDING_AGENT_NAME,
         workspaceDir: workspace.workspaceDir,
       });
-      deps.sessionStore.setCurrentAgent(sessionUserKey, agent.agentId);
       return agent;
+    }
+
+    function normalizeVisibleCurrentAgent(userKey: string): AgentRecord {
+      const selected = deps.sessionStore.getCurrentAgent(userKey);
+      if (!SYSTEM_AGENT_IDS.has(selected.agentId)) {
+        return selected;
+      }
+
+      const listedAgents = deps.sessionStore.listAgents(userKey);
+      const customFallback = listedAgents.find((item) => !item.isDefault && !SYSTEM_AGENT_IDS.has(item.agentId));
+      const fallback = customFallback ?? listedAgents.find((item) => !SYSTEM_AGENT_IDS.has(item.agentId));
+      if (fallback) {
+        deps.sessionStore.setCurrentAgent(userKey, fallback.agentId);
+        return deps.sessionStore.getCurrentAgent(userKey);
+      }
+      return selected;
     }
 
     if (commandResult.handled) {
@@ -246,8 +273,17 @@ ${clipMessage(prompt, 500)}
         return;
       }
       if (commandResult.initMemoryAgent) {
+        const onboardingThreadId = deps.sessionStore.getSession(sessionUserKey, MEMORY_ONBOARDING_AGENT_ID);
+        if (onboardingKickoffInFlight.has(sessionUserKey) && !onboardingThreadId) {
+          await deps.sendText(channel, userId, renderMemoryOnboardingPendingMessage());
+          return;
+        }
+        if (onboardingThreadId) {
+          await deps.sendText(channel, userId, renderMemoryOnboardingResumeMessage());
+          return;
+        }
         const agent = ensureMemoryOnboardingAgent();
-        await deps.sendText(channel, userId, renderMemoryOnboardingMessage(agent.workspaceDir));
+        await deps.sendText(channel, userId, renderMemoryOnboardingStartMessage());
         await startMemoryOnboarding(agent, currentModel);
         return;
       }
@@ -432,28 +468,28 @@ ${clipMessage(text, 500)}
       return;
     }
 
-    if (deps.agentWorkspaceManager.isSharedMemoryEmpty(sessionUserKey)) {
-      // 若当前已在 onboarding agent 且已有进行中的对话，说明引导尚未完成但用户消息正在继续
-      // 此时直接把消息转发给 onboarding agent 继续对话，不重复触发 kickoff
-      const isOnboardingInProgress =
-        currentAgent.agentId === MEMORY_ONBOARDING_AGENT_ID
-        && !!deps.sessionStore.getSession(sessionUserKey, MEMORY_ONBOARDING_AGENT_ID);
+    const isSharedMemoryEmpty = deps.agentWorkspaceManager.isSharedMemoryEmpty(sessionUserKey);
+    const onboardingThreadId = deps.sessionStore.getSession(sessionUserKey, MEMORY_ONBOARDING_AGENT_ID);
 
-      if (!isOnboardingInProgress) {
+    if (isSharedMemoryEmpty) {
+      if (!onboardingThreadId) {
+        if (onboardingKickoffInFlight.has(sessionUserKey)) {
+          await deps.sendText(channel, userId, renderMemoryOnboardingPendingMessage());
+          return;
+        }
+
         const agent = ensureMemoryOnboardingAgent();
         await deps.sendText(
           channel,
           userId,
           [
-            '🧭 检测到 shared-memory 仍为空，先进入记忆初始化引导。',
-            renderMemoryOnboardingMessage(agent.workspaceDir),
+            '🧭 检测到 shared-memory 为空，先进行记忆初始化。',
+            renderMemoryOnboardingStartMessage(),
           ].join('\n'),
         );
         await startMemoryOnboarding(agent, currentModel);
         return;
       }
-      // isOnboardingInProgress === true：引导已在进行中，直接放行，
-      // 让下方正常的 codex run 流程处理用户的回答
     }
 
     if (!deps.rateLimitStore.allow(sessionUserKey)) {
@@ -470,20 +506,27 @@ ${clipMessage(text, 500)}
 
     try {
       let lastStreamSend: Promise<void> = Promise.resolve();
+      const runtimeAgent = isSharedMemoryEmpty && onboardingThreadId
+        ? ensureMemoryOnboardingAgent()
+        : currentAgent;
+      const runtimeThreadId = isSharedMemoryEmpty && onboardingThreadId
+        ? onboardingThreadId
+        : existingThreadId;
+      const runtimeSearch = runtimeAgent.agentId === MEMORY_ONBOARDING_AGENT_ID ? false : currentSearch;
       log.debug('handleText 查询 session', {
         userId,
-        agentId: currentAgent.agentId,
-        workdir: currentAgent.workspaceDir,
-        existingThreadId: existingThreadId ?? '(无，新会话)',
+        agentId: runtimeAgent.agentId,
+        workdir: runtimeAgent.workspaceDir,
+        existingThreadId: runtimeThreadId ?? '(无，新会话)',
       });
 
       const startTime = Date.now();
       const result = await deps.codexRunner.run({
         prompt,
-        threadId: existingThreadId,
+        threadId: runtimeThreadId,
         model: currentModel,
-        search: currentSearch,
-        workdir: currentAgent.workspaceDir,
+        search: runtimeSearch,
+        workdir: runtimeAgent.workspaceDir,
         onMessage: (text) => {
           log.info(`
 ════════════════════════════════════════════════════════════
@@ -501,17 +544,17 @@ ${clipMessage(text, 500)}
 
       log.info('<<< handleText Codex 执行完成', {
         userId,
-        agentId: currentAgent.agentId,
+        agentId: runtimeAgent.agentId,
         threadId: result.threadId,
-        workdir: currentAgent.workspaceDir,
+        workdir: runtimeAgent.workspaceDir,
         elapsedMs: elapsed,
         rawOutputLength: result.rawOutput.length,
       });
 
-      deps.sessionStore.setSession(sessionUserKey, currentAgent.agentId, result.threadId, prompt);
+      deps.sessionStore.setSession(sessionUserKey, runtimeAgent.agentId, result.threadId, prompt);
       log.debug('handleText session 已更新', {
         userId,
-        agentId: currentAgent.agentId,
+        agentId: runtimeAgent.agentId,
         threadId: result.threadId,
       });
     } catch (error) {

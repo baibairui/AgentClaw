@@ -48,7 +48,7 @@ describe('handleUserCommand', () => {
     expect(result.handled).toBe(true);
     expect(result.message).toContain('可用命令');
     expect(result.message).toContain('/agent create <名称>');
-    expect(result.message).toContain('/agent init-memory');
+    expect(result.message).not.toContain('/agent init-memory');
   });
 
   it('supports /clear', () => {
@@ -159,7 +159,7 @@ describe('commandNeedsAgentList', () => {
     expect(commandNeedsAgentList('/agents')).toBe(true);
     expect(commandNeedsAgentList('/agent')).toBe(true);
     expect(commandNeedsAgentList('/agent use 2')).toBe(true);
-    expect(commandNeedsAgentList('/agent init-memory')).toBe(true);
+    expect(commandNeedsAgentList('/agent init-memory')).toBe(false);
   });
 
   it('returns false for other commands', () => {
