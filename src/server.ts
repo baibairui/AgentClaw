@@ -31,7 +31,7 @@ const dataDir = path.resolve(process.cwd(), '.data');
 fs.mkdirSync(dataDir, { recursive: true });
 log.debug('数据目录已就绪', { dataDir });
 
-const sessionStore = new SessionStore(path.join(dataDir, 'sessions.json'));
+const sessionStore = new SessionStore(path.join(dataDir, 'sessions.db'));
 log.debug('SessionStore 已初始化');
 const dedupStore = new MessageDedupStore(config.dedupWindowSeconds);
 log.debug('MessageDedupStore 已初始化', { dedupWindowSeconds: config.dedupWindowSeconds });

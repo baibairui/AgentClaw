@@ -1,14 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('SessionStore');
-
-interface SessionFileData {
-  sessions?: Record<string, string>;
-  histories?: Record<string, string[]>;
-  metas?: Record<string, SessionMeta>;
-}
 
 export interface SessionMeta {
   name?: string;
@@ -25,72 +20,136 @@ export interface SessionListItem {
 
 export class SessionStore {
   private readonly filePath: string;
-  private sessions: Record<string, string>;
-  private histories: Record<string, string[]>;
-  private metas: Record<string, SessionMeta>;
+  private readonly db: DatabaseSync;
+  private lastTs = 0;
 
   constructor(filePath: string) {
     this.filePath = filePath;
-    const loaded = this.load();
-    this.sessions = loaded.sessions;
-    this.histories = loaded.histories;
-    this.metas = loaded.metas;
-    log.info('SessionStore 已加载', {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+    this.db = new DatabaseSync(this.filePath);
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA foreign_keys = ON;
+    `);
+
+    this.ensureSchema();
+
+    const row = this.db.prepare('SELECT COUNT(*) AS count FROM user_session').get() as { count: number };
+    log.info('SessionStore 已加载(SQLite)', {
       filePath: this.filePath,
-      sessionCount: Object.keys(this.sessions).length,
-      userIds: Object.keys(this.sessions),
+      sessionCount: row.count,
     });
   }
 
   get(userId: string): string | undefined {
-    const threadId = this.sessions[userId];
-    log.debug('SessionStore.get', {
-      userId,
-      threadId: threadId ?? '(未找到)',
-    });
-    return threadId;
+    const row = this.db
+      .prepare('SELECT current_thread_id AS threadId FROM user_session WHERE user_id = ?')
+      .get(userId) as { threadId?: string } | undefined;
+    return row?.threadId;
   }
 
   set(userId: string, threadId: string, lastPrompt?: string): void {
-    this.sessions[userId] = threadId;
-    const current = this.histories[userId] ?? [];
-    const withoutDup = current.filter((id) => id !== threadId);
-    this.histories[userId] = [threadId, ...withoutDup].slice(0, 20);
-    this.metas[threadId] = {
-      ...this.metas[threadId],
-      lastPrompt: normalizePreview(lastPrompt) ?? this.metas[threadId]?.lastPrompt,
-      updatedAt: Date.now(),
-    };
-    log.debug('SessionStore.set', { userId, threadId });
-    this.persist();
+    const now = this.nextTimestamp();
+    this.withTransaction(() => {
+      this.db
+        .prepare(`
+          INSERT INTO user_session(user_id, current_thread_id, updated_at)
+          VALUES(?, ?, ?)
+          ON CONFLICT(user_id) DO UPDATE SET
+            current_thread_id = excluded.current_thread_id,
+            updated_at = excluded.updated_at
+        `)
+        .run(userId, threadId, now);
+
+      this.db
+        .prepare(`
+          INSERT INTO user_history(user_id, thread_id, updated_at)
+          VALUES(?, ?, ?)
+          ON CONFLICT(user_id, thread_id) DO UPDATE SET
+            updated_at = excluded.updated_at
+        `)
+        .run(userId, threadId, now);
+
+      const normalizedPrompt = normalizePreview(lastPrompt);
+      if (normalizedPrompt) {
+        this.db
+          .prepare(`
+            INSERT INTO session_meta(thread_id, name, last_prompt, updated_at)
+            VALUES(?, NULL, ?, ?)
+            ON CONFLICT(thread_id) DO UPDATE SET
+              last_prompt = excluded.last_prompt,
+              updated_at = excluded.updated_at
+          `)
+          .run(threadId, normalizedPrompt, now);
+      } else {
+        this.db
+          .prepare(`
+            INSERT INTO session_meta(thread_id, name, last_prompt, updated_at)
+            VALUES(?, NULL, NULL, ?)
+            ON CONFLICT(thread_id) DO UPDATE SET
+              updated_at = excluded.updated_at
+          `)
+          .run(threadId, now);
+      }
+
+      // 保留最近 20 条历史
+      this.db
+        .prepare(`
+          DELETE FROM user_history
+          WHERE user_id = ?
+            AND thread_id IN (
+              SELECT thread_id
+              FROM user_history
+              WHERE user_id = ?
+              ORDER BY updated_at DESC
+              LIMIT -1 OFFSET 20
+            )
+        `)
+        .run(userId, userId);
+    });
   }
 
   clear(userId: string): boolean {
-    if (!(userId in this.sessions)) {
-      log.debug('SessionStore.clear 未命中', { userId });
-      return false;
-    }
-    delete this.sessions[userId];
-    this.persist();
-    log.info('SessionStore.clear 已清除用户会话', { userId });
-    return true;
+    const result = this.db.prepare('DELETE FROM user_session WHERE user_id = ?').run(userId) as { changes?: number };
+    return (result.changes ?? 0) > 0;
   }
 
   list(userId: string): string[] {
-    return [...(this.histories[userId] ?? [])];
+    const rows = this.db
+      .prepare(`
+        SELECT thread_id AS threadId
+        FROM user_history
+        WHERE user_id = ?
+        ORDER BY updated_at DESC
+        LIMIT 20
+      `)
+      .all(userId) as Array<{ threadId: string }>;
+    return rows.map((row) => row.threadId);
   }
 
   listDetailed(userId: string): SessionListItem[] {
-    const list = this.list(userId);
-    return list.map((threadId) => {
-      const meta = this.metas[threadId];
-      return {
-        threadId,
-        name: meta?.name,
-        lastPrompt: meta?.lastPrompt,
-        updatedAt: meta?.updatedAt ?? 0,
-      };
-    });
+    const rows = this.db
+      .prepare(`
+        SELECT
+          h.thread_id AS threadId,
+          m.name AS name,
+          m.last_prompt AS lastPrompt,
+          COALESCE(m.updated_at, h.updated_at) AS updatedAt
+        FROM user_history h
+        LEFT JOIN session_meta m ON m.thread_id = h.thread_id
+        WHERE h.user_id = ?
+        ORDER BY h.updated_at DESC
+        LIMIT 20
+      `)
+      .all(userId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      threadId: String(row.threadId ?? ''),
+      name: typeof row.name === 'string' ? row.name : undefined,
+      lastPrompt: typeof row.lastPrompt === 'string' ? row.lastPrompt : undefined,
+      updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : 0,
+    }));
   }
 
   resolveSwitchTarget(userId: string, target: string): string | undefined {
@@ -98,7 +157,6 @@ export class SessionStore {
     if (!raw) {
       return undefined;
     }
-    // 支持编号切换（1-based）
     if (/^\d+$/.test(raw)) {
       const index = Number(raw);
       if (index <= 0) {
@@ -107,7 +165,6 @@ export class SessionStore {
       const list = this.list(userId);
       return list[index - 1];
     }
-    // 回退：按 threadId 直接切换
     return raw;
   }
 
@@ -116,68 +173,60 @@ export class SessionStore {
     if (!normalized) {
       return false;
     }
-    this.metas[targetThreadId] = {
-      ...this.metas[targetThreadId],
-      name: normalized,
-      updatedAt: Date.now(),
-    };
-    this.persist();
+    this.db
+      .prepare(`
+        INSERT INTO session_meta(thread_id, name, last_prompt, updated_at)
+        VALUES(?, ?, NULL, ?)
+        ON CONFLICT(thread_id) DO UPDATE SET
+          name = excluded.name,
+          updated_at = excluded.updated_at
+      `)
+      .run(targetThreadId, normalized, this.nextTimestamp());
     return true;
   }
 
-  private load(): { sessions: Record<string, string>; histories: Record<string, string[]>; metas: Record<string, SessionMeta> } {
-    if (!fs.existsSync(this.filePath)) {
-      log.debug('Session 文件不存在，返回空', { filePath: this.filePath });
-      return { sessions: {}, histories: {}, metas: {} };
-    }
+  private ensureSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS user_session (
+        user_id TEXT PRIMARY KEY,
+        current_thread_id TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
 
-    const content = fs.readFileSync(this.filePath, 'utf8').trim();
-    if (!content) {
-      log.debug('Session 文件为空');
-      return { sessions: {}, histories: {}, metas: {} };
-    }
+      CREATE TABLE IF NOT EXISTS user_history (
+        user_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(user_id, thread_id)
+      );
 
+      CREATE INDEX IF NOT EXISTS idx_user_history_user_updated
+        ON user_history(user_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS session_meta (
+        thread_id TEXT PRIMARY KEY,
+        name TEXT,
+        last_prompt TEXT,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+  }
+
+  private withTransaction(fn: () => void): void {
+    this.db.exec('BEGIN IMMEDIATE');
     try {
-      const parsed = JSON.parse(content) as SessionFileData;
-      log.debug('Session 文件加载成功', {
-        sessionCount: Object.keys(parsed.sessions ?? {}).length,
-      });
-      const sessions = parsed.sessions ?? {};
-      const histories = parsed.histories ?? {};
-      const metas = parsed.metas ?? {};
-
-      // 兼容旧数据：没有 histories 时由 current session 反推
-      for (const [userId, threadId] of Object.entries(sessions)) {
-        if (!histories[userId] || histories[userId].length === 0) {
-          histories[userId] = [threadId];
-        }
-        if (!metas[threadId]) {
-          metas[threadId] = { updatedAt: Date.now() };
-        }
-      }
-      return { sessions, histories, metas };
-    } catch (err) {
-      log.warn('Session 文件解析失败，返回空', err);
-      return { sessions: {}, histories: {}, metas: {} };
+      fn();
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
     }
   }
 
-  private persist(): void {
-    const directory = path.dirname(this.filePath);
-    fs.mkdirSync(directory, { recursive: true });
-
-    const body = JSON.stringify(
-      { sessions: this.sessions, histories: this.histories, metas: this.metas },
-      null,
-      2,
-    );
-    const tempFilePath = `${this.filePath}.tmp`;
-    fs.writeFileSync(tempFilePath, body, 'utf8');
-    fs.renameSync(tempFilePath, this.filePath);
-    log.debug('Session 文件已持久化', {
-      filePath: this.filePath,
-      sessionCount: Object.keys(this.sessions).length,
-    });
+  private nextTimestamp(): number {
+    const now = Date.now() * 1000;
+    this.lastTs = Math.max(now, this.lastTs + 1);
+    return this.lastTs;
   }
 }
 

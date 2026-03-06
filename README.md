@@ -71,3 +71,7 @@ npm start
 ```bash
 npm test
 ```
+
+## 会话持久化
+
+- 现在使用 SQLite 存储会话数据：`.data/sessions.db`

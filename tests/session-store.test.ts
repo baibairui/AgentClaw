@@ -8,7 +8,7 @@ import { SessionStore } from '../src/stores/session-store.js';
 
 function makeStore(): SessionStore {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-store-'));
-  return new SessionStore(path.join(dir, 'sessions.json'));
+  return new SessionStore(path.join(dir, 'sessions.db'));
 }
 
 describe('SessionStore', () => {
@@ -27,4 +27,5 @@ describe('SessionStore', () => {
     expect(list[1]?.name).toBe('发布修复');
     expect(list[0]?.lastPrompt).toContain('third prompt');
   });
+
 });
