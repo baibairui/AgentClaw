@@ -3,3 +3,4 @@ dist/
 .data/
 .env
 npm-debug.log*
+package.json.bak.*
