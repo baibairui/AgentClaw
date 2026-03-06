@@ -30,6 +30,7 @@ export interface UserCommandResult {
   createAgentTemplate?: 'default' | 'memory-onboarding';
   initMemoryAgent?: boolean;
   useAgentTarget?: string;
+  initLogin?: boolean;
 }
 
 export function maskThreadId(threadId?: string): string {
@@ -115,6 +116,7 @@ export function handleUserCommand(content: string, context: UserCommandContext =
           '/review - 审查当前 agent 工作区变更',
           '/review base <分支> - 审查相对分支的变更',
           '/review commit <SHA> - 审查指定提交',
+          '/login - 使用设备码登录 Codex',
         ].join('\n'),
       };
     case '/new':
@@ -204,6 +206,11 @@ export function handleUserCommand(content: string, context: UserCommandContext =
         switchTarget: target,
       };
     }
+    case '/login':
+      return {
+        handled: true,
+        initLogin: true,
+      };
     case '/rename': {
       const target = parts[1] ?? '';
       const name = parts.slice(2).join(' ').trim();

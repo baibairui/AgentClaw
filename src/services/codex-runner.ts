@@ -28,6 +28,10 @@ export interface CodexReviewInput {
   onMessage?: (text: string) => void;
 }
 
+export interface CodexLoginInput {
+  onMessage?: (text: string) => void;
+}
+
 export interface ParsedCodexOutput {
   threadId?: string;
   answer: string;
@@ -71,7 +75,7 @@ export function parseCodexJsonl(raw: string): ParsedCodexOutput {
   };
 }
 
-function *iterateCodexEvents(raw: string): Generator<Record<string, unknown>> {
+function* iterateCodexEvents(raw: string): Generator<Record<string, unknown>> {
   for (const rawLine of raw.split('\n')) {
     const line = rawLine.trim();
     if (!line) {
@@ -153,6 +157,53 @@ export class CodexRunner {
         reviewTarget: input.target ?? '(none)',
       },
     }).then((result) => ({ rawOutput: result.rawOutput }));
+  }
+
+  login(input: CodexLoginInput): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const args = ['login', '--device-auth'];
+      log.info('Codex 登录进程启动', { bin: this.codexBin, args });
+
+      const child = spawn(this.codexBin, args, {
+        cwd: this.workdir,
+        env: process.env,
+      });
+
+      // 登录阶段最长等待 15 分钟
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('codex login timeout after 15 minutes'));
+      }, 15 * 60 * 1000);
+
+      let stdoutBuf = '';
+
+      child.stdout.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf8');
+        stdoutBuf += text;
+        const sendText = text.trim();
+        if (sendText && input.onMessage) {
+          input.onMessage(sendText);
+        }
+      });
+
+      child.stderr.on('data', (chunk: Buffer) => {
+        log.warn('Codex login stderr', { text: chunk.toString('utf8').substring(0, 500) });
+      });
+
+      child.on('error', (error: Error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+
+      child.on('close', (code: number | null) => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          reject(new Error(`codex login exited with code ${code}`));
+          return;
+        }
+        resolve();
+      });
+    });
   }
 
   private runJsonl(options: {

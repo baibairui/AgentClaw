@@ -43,6 +43,9 @@ interface CodexRunnerLike {
     workdir?: string;
     onMessage?: (text: string) => void;
   }): Promise<{ rawOutput: string }>;
+  login(input: {
+    onMessage?: (text: string) => void;
+  }): Promise<void>;
 }
 
 interface BrowserOpenerLike {
@@ -88,6 +91,9 @@ const MEMORY_ONBOARDING_KICKOFF_PROMPT = [
   '第一轮聚焦 profile：preferred name, primary roles, timezone, long-term goals, stable facts。',
 ].join('\n');
 
+/** 系统内置 agent（不展示给用户，不允许通过 /agents 切换）的 ID 集合 */
+const SYSTEM_AGENT_IDS = new Set<string>([MEMORY_ONBOARDING_AGENT_ID]);
+
 function renderMemoryOnboardingMessage(workspaceDir: string): string {
   return [
     `✅ 已切换到记忆初始化引导 agent：${MEMORY_ONBOARDING_AGENT_NAME} (${MEMORY_ONBOARDING_AGENT_ID})`,
@@ -120,7 +126,9 @@ ${clipMessage(prompt, 500)}
     const existingThreadId = deps.sessionStore.getSession(sessionUserKey, currentAgent.agentId);
     const currentModel = userModelOverrides.get(sessionUserKey) ?? deps.defaultModel;
     const currentSearch = userSearchOverrides.get(sessionUserKey) ?? deps.defaultSearch;
-    const agents = commandNeedsAgentList(prompt) ? deps.sessionStore.listAgents(sessionUserKey) : [];
+    // 对用户展示时，过滤掉系统内置 agent（如 memory-onboarding）
+    const allAgents = commandNeedsAgentList(prompt) ? deps.sessionStore.listAgents(sessionUserKey) : [];
+    const agents = allAgents.filter((a) => !SYSTEM_AGENT_IDS.has(a.agentId));
     const commandResult = handleUserCommand(prompt, {
       currentThreadId: existingThreadId,
       currentAgent,
@@ -241,6 +249,38 @@ ${clipMessage(prompt, 500)}
         const agent = ensureMemoryOnboardingAgent();
         await deps.sendText(channel, userId, renderMemoryOnboardingMessage(agent.workspaceDir));
         await startMemoryOnboarding(agent, currentModel);
+        return;
+      }
+      if (commandResult.initLogin) {
+        if (!deps.runnerEnabled) {
+          await deps.sendText(channel, userId, '⚠️ 当前服务已禁用命令执行，无法进行登录。');
+          return;
+        }
+        await deps.sendText(channel, userId, '⏳ 正在请求设备登录码，请稍候...');
+        try {
+          let lastStreamSend: Promise<void> = Promise.resolve();
+          await deps.codexRunner.login({
+            onMessage: (text) => {
+              log.info(`
+════════════════════════════════════════════════════════════
+🔑 Codex 登录设备码  [${channel}:${userId}]
+────────────────────────────────────────────────────────────
+${clipMessage(text, 500)}
+════════════════════════════════════════════════════════════`);
+              lastStreamSend = deps.sendText(channel, userId, `【登录授权】\n${text}`).catch((err) => {
+                log.error('handleText login onMessage 推送失败', err);
+              });
+            },
+          });
+          await lastStreamSend;
+          await deps.sendText(channel, userId, '✅ 登录成功！Codex CLI 已获得授权。');
+        } catch (error) {
+          log.error('handleText /login 失败或超时', {
+            userId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await deps.sendText(channel, userId, '❌ 登录超时或遇到错误。请重试 /login 命令。');
+        }
         return;
       }
       if (commandResult.useAgentTarget) {
@@ -392,21 +432,28 @@ ${clipMessage(text, 500)}
       return;
     }
 
-    if (
-      currentAgent.agentId !== MEMORY_ONBOARDING_AGENT_ID
-      && deps.agentWorkspaceManager.isSharedMemoryEmpty(sessionUserKey)
-    ) {
-      const agent = ensureMemoryOnboardingAgent();
-      await deps.sendText(
-        channel,
-        userId,
-        [
-          '🧭 检测到 shared-memory 仍为空，先进入记忆初始化引导。',
-          renderMemoryOnboardingMessage(agent.workspaceDir),
-        ].join('\n'),
-      );
-      await startMemoryOnboarding(agent, currentModel);
-      return;
+    if (deps.agentWorkspaceManager.isSharedMemoryEmpty(sessionUserKey)) {
+      // 若当前已在 onboarding agent 且已有进行中的对话，说明引导尚未完成但用户消息正在继续
+      // 此时直接把消息转发给 onboarding agent 继续对话，不重复触发 kickoff
+      const isOnboardingInProgress =
+        currentAgent.agentId === MEMORY_ONBOARDING_AGENT_ID
+        && !!deps.sessionStore.getSession(sessionUserKey, MEMORY_ONBOARDING_AGENT_ID);
+
+      if (!isOnboardingInProgress) {
+        const agent = ensureMemoryOnboardingAgent();
+        await deps.sendText(
+          channel,
+          userId,
+          [
+            '🧭 检测到 shared-memory 仍为空，先进入记忆初始化引导。',
+            renderMemoryOnboardingMessage(agent.workspaceDir),
+          ].join('\n'),
+        );
+        await startMemoryOnboarding(agent, currentModel);
+        return;
+      }
+      // isOnboardingInProgress === true：引导已在进行中，直接放行，
+      // 让下方正常的 codex run 流程处理用户的回答
     }
 
     if (!deps.rateLimitStore.allow(sessionUserKey)) {
