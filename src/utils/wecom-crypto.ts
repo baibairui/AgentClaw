@@ -46,10 +46,15 @@ export class WeComCrypto {
      */
     verifySignature(signature: string, timestamp: string, nonce: string, encrypt: string): boolean {
         const computed = this.computeSignature(timestamp, nonce, encrypt);
+        if (computed.length !== signature.length) {
+            log.debug('签名验证失败（长度不一致）', {
+                expectedLength: signature.length,
+                computedLength: computed.length,
+            });
+            return false;
+        }
         const result = crypto.timingSafeEqual(Buffer.from(computed, 'utf8'), Buffer.from(signature, 'utf8'));
         log.debug('签名验证', {
-            expected: signature,
-            computed,
             match: result,
         });
         return result;

@@ -3,11 +3,14 @@ import express from 'express';
 import { WeComCrypto } from './utils/wecom-crypto.js';
 import { parseWeComXml } from './utils/wecom-xml.js';
 import { createLogger } from './utils/logger.js';
+import { allowList } from './utils/allow-list.js';
 
 const log = createLogger('App');
 
 interface AppDeps {
   wecomCrypto: WeComCrypto;
+  allowFrom: string;
+  isDuplicateMessage: (msgId?: string) => boolean;
   /**
    * 处理文本消息，业务回复统一走主动发消息 API，无需返回值。
    * 该函数被 fire-and-forget 调用，不阻塞回调响应。
@@ -31,7 +34,7 @@ export function createApp(deps: AppDeps) {
   // ============ 请求日志中间件 ============
   app.use((req, _res, next) => {
     log.info(`← ${req.method} ${req.path}`, {
-      query: req.query,
+      queryKeys: Object.keys(req.query),
       headers: {
         'content-type': req.headers['content-type'],
         'user-agent': req.headers['user-agent'],
@@ -161,11 +164,28 @@ export function createApp(deps: AppDeps) {
         msgId: msg.msgId,
       });
 
+      // 4.1 去重（企业微信可能重试同一个 msgId）
+      if (deps.isDuplicateMessage(msg.msgId)) {
+        log.info('POST /wecom/callback 命中重复消息，跳过处理', {
+          fromUser: msg.fromUserName,
+          msgId: msg.msgId,
+        });
+        res.type('text/plain').send('success');
+        return;
+      }
+
       // 5. 立即返回 success，不阻塞
       res.type('text/plain').send('success');
       log.debug('POST /wecom/callback 已返回 success 响应');
 
       // 6. 异步处理业务（fire-and-forget）
+      if (!allowList(deps.allowFrom, msg.fromUserName)) {
+        log.warn('POST /wecom/callback 用户不在 allow list，忽略消息', {
+          userId: msg.fromUserName,
+        });
+        return;
+      }
+
       if (msg.msgType === 'text' && msg.content.trim()) {
         log.info('POST /wecom/callback 开始异步处理文本消息', {
           userId: msg.fromUserName,
