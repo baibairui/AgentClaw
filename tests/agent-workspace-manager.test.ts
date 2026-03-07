@@ -131,4 +131,25 @@ describe('AgentWorkspaceManager', () => {
     expect(manager.isSharedMemoryEmpty(userId)).toBe(false);
   });
 
+  it('upgrades legacy identity templates for existing users', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workspace-'));
+    const manager = new AgentWorkspaceManager(dir);
+    const userId = 'wecom:u1';
+    const created = manager.createWorkspace({
+      userId,
+      agentName: 'legacy',
+      existingAgentIds: [],
+    });
+
+    const userHashDir = fs.readdirSync(path.join(dir, 'users'))[0]!;
+    const sharedIdentity = path.join(dir, 'users', userHashDir, 'shared-memory', 'identity.md');
+    const agentIdentity = path.join(created.workspaceDir, 'memory', 'identity.md');
+    fs.writeFileSync(sharedIdentity, fs.readFileSync(sharedIdentity, 'utf8').replace('- Language style:\n', ''), 'utf8');
+    fs.writeFileSync(agentIdentity, fs.readFileSync(agentIdentity, 'utf8').replace('- Language style:\n', ''), 'utf8');
+
+    manager.getSharedMemorySnapshot(userId);
+
+    expect(fs.readFileSync(sharedIdentity, 'utf8')).toContain('- Language style:');
+    expect(fs.readFileSync(agentIdentity, 'utf8')).toContain('- Language style:');
+  });
 });

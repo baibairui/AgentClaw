@@ -69,6 +69,7 @@ export class AgentWorkspaceManager {
       path.join(workspaceDir, 'memory', 'identity.md'),
       renderIdentityMemory(),
     );
+    this.upgradeIdentityTemplateFile(path.join(workspaceDir, 'memory', 'identity.md'));
     this.writeIfMissing(
       path.join(workspaceDir, 'memory', 'profile.md'),
       renderProfileMemory(),
@@ -242,6 +243,8 @@ export class AgentWorkspaceManager {
 
     this.writeIfMissing(path.join(sharedMemoryDir, 'profile.md'), renderProfileMemory());
     this.writeIfMissing(path.join(sharedMemoryDir, 'identity.md'), renderIdentityMemory());
+    this.upgradeIdentityTemplateFile(path.join(sharedMemoryDir, 'identity.md'));
+    this.upgradeUserAgentIdentityTemplates(userDir);
     this.writeIfMissing(path.join(sharedMemoryDir, 'preferences.md'), renderPreferencesMemory());
     this.writeIfMissing(path.join(sharedMemoryDir, 'projects.md'), renderProjectsMemory());
     this.writeIfMissing(path.join(sharedMemoryDir, 'relationships.md'), renderRelationshipsMemory());
@@ -275,6 +278,41 @@ export class AgentWorkspaceManager {
     }
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, content, 'utf8');
+  }
+
+  private upgradeIdentityTemplateFile(filePath: string): void {
+    if (!fs.existsSync(filePath)) {
+      return;
+    }
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (content.includes('- Language style:')) {
+      return;
+    }
+    const lines = content.split('\n');
+    const insertAfter = lines.findIndex((line) => line.trim() === '- Communication style:');
+    if (insertAfter >= 0) {
+      lines.splice(insertAfter + 1, 0, '- Language style:');
+      fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+      return;
+    }
+    const fallback = content.trimEnd();
+    fs.writeFileSync(filePath, `${fallback}\n- Language style:\n`, 'utf8');
+  }
+
+  private upgradeUserAgentIdentityTemplates(userDir: string): void {
+    if (!fs.existsSync(userDir)) {
+      return;
+    }
+    for (const entry of fs.readdirSync(userDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      if (entry.name === 'shared-memory') {
+        continue;
+      }
+      const identityPath = path.join(userDir, entry.name, 'memory', 'identity.md');
+      this.upgradeIdentityTemplateFile(identityPath);
+    }
   }
 }
 
