@@ -177,6 +177,35 @@ describe('createChatHandler', () => {
     expect(sessionStore.getSession('local-owner', 'default')).toBeUndefined();
   });
 
+  it('sends ack when receiving normalized non-text inbound message', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const run = vi.fn(async () => ({ threadId: 't1', rawOutput: '' }));
+    const sessionStore = createSessionStore();
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      browserOpenEnabled: false,
+      runnerEnabled: true,
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'feishu', userId: 'u1', content: '[飞书图片] image_key=img_xxx' });
+
+    expect(sendText).toHaveBeenCalledWith('feishu', 'u1', '✅ 已收到飞书图片消息，正在分析处理。');
+    expect(run).toHaveBeenCalled();
+  });
+
   it('creates and switches agent by command', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();

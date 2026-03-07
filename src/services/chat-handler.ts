@@ -253,6 +253,31 @@ function buildOutboundMessageProtocolPrompt(userPrompt: string): string {
   ].join('\n');
 }
 
+function buildInboundNonTextAck(prompt: string): string | undefined {
+  const patterns: Array<{ regex: RegExp; label: string }> = [
+    { regex: /^\[飞书图片]/, label: '飞书图片' },
+    { regex: /^\[飞书文件]/, label: '飞书文件' },
+    { regex: /^\[飞书语音]/, label: '飞书语音' },
+    { regex: /^\[飞书媒体]/, label: '飞书媒体' },
+    { regex: /^\[飞书表情]/, label: '飞书表情' },
+    { regex: /^\[飞书富文本]/, label: '飞书富文本' },
+    { regex: /^\[飞书卡片]/, label: '飞书卡片' },
+    { regex: /^\[飞书分享群名片]/, label: '飞书分享群名片' },
+    { regex: /^\[飞书分享个人名片]/, label: '飞书分享个人名片' },
+    { regex: /^\[企微图片]/, label: '企微图片' },
+    { regex: /^\[企微语音]/, label: '企微语音' },
+    { regex: /^\[企微视频]/, label: '企微视频' },
+    { regex: /^\[企微文件]/, label: '企微文件' },
+    { regex: /^\[企微链接]/, label: '企微链接' },
+    { regex: /^\[企微位置]/, label: '企微位置' },
+  ];
+  const hit = patterns.find((item) => item.regex.test(prompt));
+  if (!hit) {
+    return undefined;
+  }
+  return `✅ 已收到${hit.label}消息，正在分析处理。`;
+}
+
 function buildMemoryOnboardingKickoffPrompt(input: {
   reason: 'shared' | 'agent' | 'both' | 'manual';
   targetAgent?: { agentId: string; name: string; workspaceDir: string };
@@ -459,6 +484,10 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     if (!prompt) {
       log.debug('handleText 收到空 prompt，跳过', { channel, userId });
       return;
+    }
+    const inboundAck = buildInboundNonTextAck(prompt);
+    if (inboundAck) {
+      await deps.sendText(channel, userId, inboundAck);
     }
 
     log.info(`
