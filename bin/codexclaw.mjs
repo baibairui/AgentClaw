@@ -3,11 +3,20 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs';
 
 const cliFile = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(cliFile), '..');
+const invokedCwd = process.cwd();
 
-process.chdir(projectRoot);
+function isGatewayProject(dir) {
+  return fs.existsSync(path.join(dir, 'package.json'))
+    && fs.existsSync(path.join(dir, 'bin', 'start-gateway.mjs'))
+    && fs.existsSync(path.join(dir, 'src', 'server.ts'));
+}
+
+const runtimeRoot = isGatewayProject(invokedCwd) ? invokedCwd : projectRoot;
+process.chdir(runtimeRoot);
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'help';
