@@ -48,6 +48,12 @@ export class AgentWorkspaceManager {
     const sharedMemoryDir = this.ensureUserSharedMemory(userDir);
     const workspaceDir = path.join(userDir, agentId);
     const template = input.template ?? 'default';
+    const initialIdentityContent = this.resolveInitialAgentIdentityContent(
+      sharedMemoryDir,
+      input.agentName,
+      agentId,
+      template,
+    );
 
     fs.mkdirSync(path.join(workspaceDir, 'memory', 'daily'), { recursive: true });
 
@@ -67,7 +73,7 @@ export class AgentWorkspaceManager {
     );
     this.writeIfMissing(
       path.join(workspaceDir, 'memory', 'identity.md'),
-      renderIdentityMemory(),
+      initialIdentityContent,
     );
     this.upgradeIdentityTemplateFile(path.join(workspaceDir, 'memory', 'identity.md'));
     this.writeIfMissing(
@@ -149,6 +155,15 @@ export class AgentWorkspaceManager {
       }
     }
     return true;
+  }
+
+  isWorkspaceIdentityEmpty(workspaceDir: string): boolean {
+    const identityPath = path.join(workspaceDir, 'memory', 'identity.md');
+    if (!fs.existsSync(identityPath)) {
+      return true;
+    }
+    const content = fs.readFileSync(identityPath, 'utf8');
+    return !hasMeaningfulMemoryContent(content);
   }
 
   getSharedMemorySnapshot(userId: string): SharedMemorySnapshot {
@@ -314,6 +329,21 @@ export class AgentWorkspaceManager {
       this.upgradeIdentityTemplateFile(identityPath);
     }
   }
+
+  private resolveInitialAgentIdentityContent(
+    sharedMemoryDir: string,
+    agentName: string,
+    agentId: string,
+    template: 'default' | 'memory-onboarding' | 'skill-onboarding',
+  ): string {
+    const sharedFallback = renderIdentityMemory();
+    const sharedIdentityPath = path.join(sharedMemoryDir, 'identity.md');
+    const sharedIdentity = fs.existsSync(sharedIdentityPath)
+      ? fs.readFileSync(sharedIdentityPath, 'utf8')
+      : sharedFallback;
+    const sharedContent = hasMeaningfulMemoryContent(sharedIdentity) ? sharedIdentity : sharedFallback;
+    return renderAgentIdentityMemory(agentName, agentId, template, sharedContent);
+  }
 }
 
 function renderWorkspaceAgentsMd(
@@ -331,6 +361,7 @@ function renderWorkspaceAgentsMd(
         '- 你不是通用助手；你的主要职责是引导用户完成记忆初始化。',
         '- 必须分轮次提问，每轮最多 3 个问题，等待用户回答后再继续。',
         '- 第一轮必须优先建立 identity（身份名字、角色、语言风格、表达风格、原则），并写入 shared-memory/identity.md。',
+        '- 当检测到某个 agent 的自身份未初始化时，也要引导并完成该 agent 的 identity 初始化。',
         '- 每轮总结后直接覆盖写入 shared-memory 对应文件，再继续下一轮。',
         '- 对用户只输出引导问题和确认结论，不透露目录结构、文件名、工作区路径、系统实现细节。',
         '',
@@ -448,6 +479,7 @@ function renderWorkspaceReadme(
         '- 该 agent 用于一次性或阶段性初始化 shared-memory。',
         '- 使用 `memory-init-checklist.md` 跟踪初始化进度。',
         '- 第一轮优先完成 identity（身份名字、角色、语言风格、表达风格、原则）。',
+        '- 若当前业务 agent 的自身份缺失，也由该引导 agent 负责补齐。',
         '- 每轮提问后都要把信息写入 shared-memory；冲突按最新用户输入直接覆盖。',
         '- 浏览器操作策略写在 `browser-playbook.md`。',
       ]
@@ -634,6 +666,35 @@ function renderIdentityMemory(): string {
   ].join('\n');
 }
 
+function renderAgentIdentityMemory(
+  agentName: string,
+  agentId: string,
+  template: 'default' | 'memory-onboarding' | 'skill-onboarding',
+  sharedIdentityContent: string,
+): string {
+  const sharedCore = stripIdentityTitle(sharedIdentityContent);
+  const role = template === 'memory-onboarding'
+    ? '记忆初始化引导'
+    : template === 'skill-onboarding'
+    ? '技能扩展助手'
+    : agentName;
+  return [
+    '# Identity',
+    '',
+    '## Global User Identity',
+    ...sharedCore,
+    '',
+    '## Current Agent Identity',
+    `- Agent name: ${agentName}`,
+    `- Agent ID: ${agentId}`,
+    `- Agent role: ${role}`,
+    '- Mission:',
+    '- Working style:',
+    '- Boundaries:',
+    '',
+  ].join('\n');
+}
+
 function renderPreferencesMemory(): string {
   return [
     '# Preferences',
@@ -800,4 +861,16 @@ function normalizeIdentityText(content: string): string {
     filtered.push(line);
   }
   return filtered.join('\n');
+}
+
+function stripIdentityTitle(content: string): string[] {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  let start = 0;
+  while (start < lines.length && !lines[start]!.trim()) {
+    start += 1;
+  }
+  if (start < lines.length && lines[start]!.trim() === '# Identity') {
+    start += 1;
+  }
+  return lines.slice(start);
 }

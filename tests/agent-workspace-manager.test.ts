@@ -29,6 +29,11 @@ describe('AgentWorkspaceManager', () => {
     expect(fs.existsSync(path.join(result.workspaceDir, 'memory', 'open-loops.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, 'memory', 'daily', 'README.md'))).toBe(true);
     const identity = fs.readFileSync(path.join(result.workspaceDir, 'memory', 'identity.md'), 'utf8');
+    expect(identity).toContain('## Global User Identity');
+    expect(identity).toContain('## Current Agent Identity');
+    expect(identity).toContain('- Agent name: Frontend Pair');
+    expect(identity).toContain('- Agent ID: frontend-pair');
+    expect(identity).toContain('- Agent role: Frontend Pair');
     expect(identity).toContain('- Language style:');
     expect(fs.existsSync(path.join(result.workspaceDir, 'browser-playbook.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'reminder-tool', 'SKILL.md'))).toBe(true);
@@ -152,4 +157,94 @@ describe('AgentWorkspaceManager', () => {
     expect(fs.readFileSync(sharedIdentity, 'utf8')).toContain('- Language style:');
     expect(fs.readFileSync(agentIdentity, 'utf8')).toContain('- Language style:');
   });
+
+  it('seeds new agent identity from shared identity when already initialized', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workspace-'));
+    const manager = new AgentWorkspaceManager(dir);
+    const userId = 'wecom:u1';
+
+    manager.createWorkspace({
+      userId,
+      agentName: 'first-agent',
+      existingAgentIds: [],
+    });
+
+    const userHashDir = fs.readdirSync(path.join(dir, 'users'))[0]!;
+    const sharedIdentity = path.join(dir, 'users', userHashDir, 'shared-memory', 'identity.md');
+    fs.writeFileSync(
+      sharedIdentity,
+      [
+        '# Identity',
+        '',
+        '## Agent Identity Core',
+        '- Preferred name: 白瑞',
+        '- Core role: AI 应用开发者',
+        '- Communication style: 直接、基于事实',
+        '- Language style: 中文（默认）',
+        '- Decision principles:',
+        '  - 遵守事实，不弄虚作假',
+        '- Boundaries:',
+        '  - 不接受半途方案',
+        '',
+        '## Voice Hints',
+        '- 真实、直接、执行到底',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const next = manager.createWorkspace({
+      userId,
+      agentName: 'second-agent',
+      existingAgentIds: ['first-agent'],
+    });
+
+    const nextIdentity = fs.readFileSync(path.join(next.workspaceDir, 'memory', 'identity.md'), 'utf8');
+    expect(nextIdentity).toContain('- Preferred name: 白瑞');
+    expect(nextIdentity).toContain('- Language style: 中文（默认）');
+    expect(nextIdentity).toContain('- Communication style: 直接、基于事实');
+    expect(nextIdentity).toContain('- Agent name: second-agent');
+    expect(nextIdentity).toContain('- Agent ID: second-agent');
+    expect(nextIdentity).toContain('- Agent role: second-agent');
+  });
+
+  it('detects whether a workspace identity is initialized', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workspace-'));
+    const manager = new AgentWorkspaceManager(dir);
+    const userId = 'wecom:u1';
+
+    const first = manager.createWorkspace({
+      userId,
+      agentName: 'first-agent',
+      existingAgentIds: [],
+    });
+    expect(manager.isWorkspaceIdentityEmpty(first.workspaceDir)).toBe(false);
+
+    const legacy = manager.createWorkspace({
+      userId,
+      agentName: 'legacy-agent',
+      existingAgentIds: ['first-agent'],
+    });
+    fs.writeFileSync(path.join(legacy.workspaceDir, 'memory', 'identity.md'), renderLegacyIdentityTemplate(), 'utf8');
+
+    expect(manager.isWorkspaceIdentityEmpty(legacy.workspaceDir)).toBe(true);
+  });
 });
+
+function renderLegacyIdentityTemplate(): string {
+  return [
+    '# Identity',
+    '',
+    '## Agent Identity Core',
+    '- Preferred name:',
+    '- Core role:',
+    '- Communication style:',
+    '- Language style:',
+    '- Decision principles:',
+    '- Boundaries:',
+    '',
+    '## Voice Hints',
+    '-',
+    '',
+  ].join('\n');
+}
