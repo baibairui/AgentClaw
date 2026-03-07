@@ -73,6 +73,12 @@
 npm install
 ```
 
+可选：安装本地 CLI 命令（安装后可直接用 `codexclaw`）：
+
+```bash
+npm link
+```
+
 ### 2. 复制环境变量模板
 
 ```bash
@@ -154,19 +160,62 @@ FEISHU_VERIFICATION_TOKEN=你的校验Token
 
 完整配置模板见 [.env.example](./.env.example)。
 
+如果你希望逐行引导填写，可以直接运行：
+
+```bash
+codexclaw setup
+```
+
+该命令会按步骤提问并写入 `.env`，结束后自动执行一次 `codexclaw check`。
+向导支持先选择平台（仅企业微信 / 仅飞书 / 同时启用），并以彩色步骤提示引导输入。
+
 ### 4. 启动服务
+
+推荐单命令启动（会先自动检查配置）：
+
+```bash
+codexclaw up
+```
+
+如果 `.env` 缺失关键配置，命令会直接提示缺失项并退出，不会盲目启动。
 
 开发模式：
 
 ```bash
-npm run dev
+codexclaw dev
 ```
 
 生产模式：
 
 ```bash
-npm run build
-npm start
+codexclaw build
+codexclaw start
+```
+
+启动前建议先跑一次配置检查：
+
+```bash
+codexclaw check
+```
+
+这条命令会读取 `.env`，按当前 WeCom/飞书模式检查必填配置并给出缺失项。
+
+`codexclaw` 命令说明：
+
+- `codexclaw up`：开发模式启动（启动前自动配置检查）
+- `codexclaw dev`：同 `up`
+- `codexclaw start`：生产模式启动（启动前自动配置检查）
+- `codexclaw setup`：逐行交互配置向导，自动写入 `.env`
+- `codexclaw check`：仅检查配置，不启动服务
+- `codexclaw build`：构建 TypeScript
+- `codexclaw test`：执行测试
+- `codexclaw help`：查看帮助
+
+推荐流程：
+
+```bash
+codexclaw check
+codexclaw up
 ```
 
 ### 5. 健康检查
