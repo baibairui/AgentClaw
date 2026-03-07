@@ -308,8 +308,16 @@ describe('createChatHandler', () => {
       elements?: Array<{ content?: string }>;
     };
     expect(card.header?.title?.content).toContain('/help');
-    expect(card.elements?.[0]?.content).toContain('可用命令（按功能分组）：');
-    expect(card.elements?.[0]?.content).toContain('/help - 查看帮助');
+    const merged = (card.elements ?? []).map((item) => String(item.content ?? '')).join('\n');
+    expect(merged).toContain('帮助目录');
+    expect(merged).toContain('帮助页 1/3');
+    expect(merged).toContain('/help - 查看帮助');
+    const actionElement = (card.elements ?? []).find((item) => (item as { tag?: string }).tag === 'action') as {
+      actions?: Array<{ value?: { gateway_cmd?: string } }>;
+    } | undefined;
+    const cmds = (actionElement?.actions ?? []).map((item) => item.value?.gateway_cmd);
+    expect(cmds).toContain('/help 1');
+    expect(cmds).toContain('/help 2');
   });
 
   it('formats short command response as feishu interactive card', async () => {

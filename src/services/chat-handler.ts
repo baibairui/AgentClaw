@@ -368,14 +368,36 @@ function resolveSearchState(text: string): 'on' | 'off' | 'unknown' {
   return 'unknown';
 }
 
+function resolveHelpPageInfo(text: string): { page: number; total: number } | undefined {
+  const match = text.match(/帮助页\s+(\d+)\/(\d+)/);
+  if (!match) {
+    return undefined;
+  }
+  const page = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isFinite(page) || !Number.isFinite(total) || total <= 0) {
+    return undefined;
+  }
+  return {
+    page: Math.trunc(page),
+    total: Math.trunc(total),
+  };
+}
+
 function resolveCommandQuickActions(commandName: string, text: string): CommandQuickAction[] {
   const normalized = commandName.toLowerCase();
   if (normalized === '/help') {
+    const pageInfo = resolveHelpPageInfo(text);
+    const page = pageInfo?.page ?? 1;
+    const total = pageInfo?.total ?? 1;
+    const prev = Math.max(1, page - 1);
+    const next = Math.min(total, page + 1);
     return [
-      { label: 'Agent 列表', cmd: '/agents', type: 'primary' },
+      { label: `上一页 (${prev})`, cmd: `/help ${prev}`, type: page > 1 ? 'primary' : 'default' },
+      { label: `下一页 (${next})`, cmd: `/help ${next}`, type: page < total ? 'primary' : 'default' },
+      { label: 'Agent 列表', cmd: '/agents' },
       { label: 'Skill 列表', cmd: '/skills' },
       { label: '模型状态', cmd: '/model' },
-      { label: '搜索状态', cmd: '/search' },
     ];
   }
   if (normalized === '/agents' || normalized === '/agent') {
@@ -544,6 +566,21 @@ function buildSearchCardElements(text: string): Array<Record<string, unknown>> {
   return elements;
 }
 
+function buildHelpCardElements(text: string): Array<Record<string, unknown>> {
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+  const header = lines[0] ?? '可用命令';
+  const pager = lines.find((line) => line.startsWith('翻页：'));
+  const body = lines.filter((line) => line !== header && line !== pager).join('\n');
+  const elements: Array<Record<string, unknown>> = [buildFeishuTextBlock(`**帮助目录**\n${header}`)];
+  if (body) {
+    elements.push(buildFeishuTextBlock(body));
+  }
+  if (pager) {
+    elements.push(buildFeishuTextBlock(`💡 ${pager}`));
+  }
+  return elements;
+}
+
 function buildGenericCardElements(text: string): Array<Record<string, unknown>> {
   return [buildFeishuTextBlock(text)];
 }
@@ -564,6 +601,9 @@ function resolveCommandCardElements(commandName: string, text: string): Array<Re
   }
   if (normalized === '/search') {
     return buildSearchCardElements(text);
+  }
+  if (normalized === '/help') {
+    return buildHelpCardElements(text);
   }
   return buildGenericCardElements(text);
 }
