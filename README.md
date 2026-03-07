@@ -136,6 +136,22 @@ FEISHU_VERIFICATION_TOKEN=你的校验Token
 - 开启 `FEISHU_LONG_CONNECTION=true` 后，会关闭 `/feishu/callback` webhook 接口（不再做兜底双通道）
 - `FEISHU_VERIFICATION_TOKEN`：仅 webhook 模式需要；长连接模式可留空
 
+### 飞书能力说明（当前实现）
+
+飞书消息类型支持：
+
+- 入站：`text`、`post`、`image`、`file`、`audio`、`media`、`sticker`、`interactive`、`share_chat`、`share_user`
+- 出站：`text`、`post`、`image`、`file`、`audio`、`media`、`sticker`、`interactive`、`share_chat`、`share_user`
+
+附件与本地路径：
+
+- 入站二进制消息会先下载到本地，再把 `local_*_path` 注入给 Codex
+- 当模型明确回发非文本且提供 `local_image_path/local_file_path/local_audio_path/local_media_path` 时，网关会先上传到飞书，再发送对应消息类型
+
+推送行为：
+
+- 当前飞书文本回复采用“多条消息推送”模式（分片逐条发送）
+
 完整配置模板见 [.env.example](./.env.example)。
 
 ### 4. 启动服务
@@ -160,6 +176,26 @@ curl http://127.0.0.1:3000/healthz
 ```
 
 如果返回 `ok`，说明服务已经启动成功。
+
+### 无公网 IP 部署（重点）
+
+如果你没有服务器公网 IP，推荐用飞书长连接模式：
+
+```env
+FEISHU_ENABLED=true
+FEISHU_LONG_CONNECTION=true
+```
+
+此模式下：
+
+- 不需要配置飞书公网回调地址
+- 本机只要能主动访问飞书开放平台（可出网）即可收事件
+- 启动后由 SDK 建立 WebSocket 长连接接收 `im.message.receive_v1`
+
+注意：
+
+- 长连接与 webhook 是互斥模式（`FEISHU_LONG_CONNECTION=true` 时 `/feishu/callback` 不启用）
+- 企业微信回调仍然需要公网可访问地址；若你只用飞书，可设置 `WECOM_ENABLED=false`
 
 ### 6. 配置企业微信回调
 
