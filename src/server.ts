@@ -144,6 +144,13 @@ interface GatewayStructuredMessage {
   content: Record<string, unknown> | string;
 }
 
+interface InboundEnrichResult {
+  content: string;
+  attachmentRequired: boolean;
+  attachmentDownloaded: boolean;
+  errorMessage?: string;
+}
+
 function resolveUserKey(userId: string): string {
   void userId;
   return 'local-owner';
@@ -235,10 +242,18 @@ const app = createApp({
   feishuVerificationToken: config.feishuVerificationToken,
   isDuplicateMessage: (msgId) => dedupStore.isDuplicate(msgId),
   handleText: async ({ channel, userId, content }) => {
-    const enrichedContent = await enrichInboundContent(channel, content);
+    const enrichResult = await enrichInboundContent(channel, content);
+    if (enrichResult.attachmentRequired && !enrichResult.attachmentDownloaded) {
+      await sendText(
+        channel,
+        userId,
+        `❌ 附件下载失败，未调用 Codex。${enrichResult.errorMessage ? `原因：${enrichResult.errorMessage}` : ''}`,
+      );
+      return;
+    }
     const sessionUserKey = resolveUserKey(userId);
     await runInUserQueue(sessionUserKey, async () => {
-      await handleChatText({ channel, userId, content: enrichedContent });
+      await handleChatText({ channel, userId, content: enrichResult.content });
     });
   },
 });
@@ -312,26 +327,44 @@ function parseStructuredMessage(content: string): GatewayStructuredMessage | und
   }
 }
 
-async function enrichInboundContent(channel: 'wecom' | 'feishu', content: string): Promise<string> {
+async function enrichInboundContent(channel: 'wecom' | 'feishu', content: string): Promise<InboundEnrichResult> {
   if (channel !== 'feishu' || !feishuApi) {
-    return content;
+    return {
+      content,
+      attachmentRequired: false,
+      attachmentDownloaded: false,
+    };
   }
   const inboundRef = extractFeishuBinaryRef(content);
   if (!inboundRef) {
-    return content;
+    return {
+      content,
+      attachmentRequired: false,
+      attachmentDownloaded: false,
+    };
   }
   try {
     const localPath = inboundRef.kind === 'image'
       ? await feishuApi.downloadImage(inboundRef.key)
       : await feishuApi.downloadFile(inboundRef.key);
-    return `${content}\nlocal_${inboundRef.kind}_path=${localPath}`;
+    return {
+      content: `${content}\nlocal_${inboundRef.kind}_path=${localPath}`,
+      attachmentRequired: true,
+      attachmentDownloaded: true,
+    };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     log.warn('飞书二进制消息下载失败，继续仅使用 key 处理', {
       kind: inboundRef.kind,
       key: inboundRef.key,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
     });
-    return content;
+    return {
+      content,
+      attachmentRequired: true,
+      attachmentDownloaded: false,
+      errorMessage,
+    };
   }
 }
 
