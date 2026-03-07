@@ -406,6 +406,9 @@ export class FeishuApi {
       if (msgType === 'text') {
         return JSON.stringify({ text: content });
       }
+      if (msgType === 'post') {
+        return JSON.stringify(buildSimplePostContent(content));
+      }
       const trimmed = content.trim();
       if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         return content;
@@ -413,7 +416,7 @@ export class FeishuApi {
       return JSON.stringify(resolveSimpleContent(msgType, content));
     }
     const uploaded = await this.resolveUploadBackedContent(msgType, content);
-    return JSON.stringify(uploaded);
+    return JSON.stringify(normalizeStructuredOutgoingContent(msgType, uploaded));
   }
 
   private async resolveUploadBackedContent(
@@ -432,7 +435,7 @@ export class FeishuApi {
       return content;
     }
 
-    if (msgType === 'file' || msgType === 'audio' || msgType === 'media') {
+    if (msgType === 'file' || msgType === 'audio' || msgType === 'media' || msgType === 'sticker') {
       const localPath = resolveFeishuLocalUploadPath(msgType, content);
       if (localPath) {
         const fileKey = await this.uploadFileFromPath(msgType, localPath, content);
@@ -579,6 +582,9 @@ function resolveSimpleContent(msgType: string, value: string): Record<string, st
   if (msgType === 'media') {
     return { file_key: value };
   }
+  if (msgType === 'post') {
+    return buildSimplePostContent(value) as unknown as Record<string, string>;
+  }
   return { text: value };
 }
 
@@ -591,6 +597,9 @@ function resolveFeishuLocalUploadPath(msgType: string, content: Record<string, u
   }
   if (msgType === 'file') {
     return firstString(content.local_file_path, content.local_media_path, content.local_audio_path);
+  }
+  if (msgType === 'sticker') {
+    return firstString(content.local_sticker_path, content.local_file_path);
   }
   return undefined;
 }
@@ -661,6 +670,44 @@ function inferFeishuUploadFileType(
     return 'ppt';
   }
   return 'stream';
+}
+
+function buildSimplePostContent(text: string): Record<string, unknown> {
+  return {
+    zh_cn: {
+      title: '',
+      content: [[{ tag: 'text', text }]],
+    },
+  };
+}
+
+function normalizeStructuredOutgoingContent(msgType: string, content: Record<string, unknown>): Record<string, unknown> {
+  if (msgType === 'interactive') {
+    const templateId = firstString(content.template_id);
+    if (templateId) {
+      return {
+        type: 'template',
+        data: {
+          template_id: templateId,
+          template_variable: asRecord(content.template_variable) ?? {},
+        },
+      };
+    }
+  }
+  if (msgType === 'post') {
+    const text = firstString(content.text);
+    if (text) {
+      return buildSimplePostContent(text);
+    }
+  }
+  return content;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function normalizeResourceTypes(type: 'image' | 'file' | ReadonlyArray<'image' | 'file'>): Array<'image' | 'file'> {

@@ -27,6 +27,8 @@ describe('normalizeFeishuIncomingMessage', () => {
     expect(content).toContain('日报');
     expect(content).toContain('今天完成 A');
     expect(content).toContain('[图片]');
+    expect(content).toContain('[飞书消息元数据]');
+    expect(content).toContain('feishu_message_type=post');
   });
 
   it('parses interactive card messages', () => {
@@ -36,16 +38,70 @@ describe('normalizeFeishuIncomingMessage', () => {
         header: {
           title: { content: '报警卡片' },
         },
+        template_id: 'ctp_xxx',
+        callback_id: 'cb_alarm',
       }),
     );
-    expect(content).toBe('[飞书卡片] 报警卡片');
+    expect(content).toContain('[飞书卡片] 报警卡片');
+    expect(content).toContain('[飞书消息元数据]');
+    expect(content).toContain('feishu_message_type=interactive');
+    expect(content).toContain('feishu_template_id=ctp_xxx');
+    expect(content).toContain('feishu_callback_id=cb_alarm');
   });
 
   it('parses share chat and share user messages', () => {
-    const shareChat = normalizeFeishuIncomingMessage('share_chat', JSON.stringify({ chat_id: 'oc_123' }));
-    const shareUser = normalizeFeishuIncomingMessage('share_user', JSON.stringify({ user_id: 'ou_123' }));
-    expect(shareChat).toBe('[飞书分享群名片] chat_id=oc_123');
-    expect(shareUser).toBe('[飞书分享个人名片] user_id=ou_123');
+    const shareChat = normalizeFeishuIncomingMessage('share_chat', JSON.stringify({
+      chat_id: 'oc_123',
+      chat_name: '项目讨论组',
+    }));
+    const shareUser = normalizeFeishuIncomingMessage('share_user', JSON.stringify({
+      user_id: 'ou_123',
+      open_id: 'ou_open_123',
+      name: '白瑞',
+      tenant_key: 'tenant_x',
+    }));
+    expect(shareChat).toContain('[飞书分享群名片] chat_id=oc_123 chat_name=项目讨论组');
+    expect(shareChat).toContain('feishu_message_type=share_chat');
+    expect(shareChat).toContain('feishu_chat_id=oc_123');
+    expect(shareChat).toContain('feishu_chat_name=项目讨论组');
+    expect(shareUser).toContain('[飞书分享个人名片] user_id=ou_123 open_id=ou_open_123 name=白瑞 tenant_key=tenant_x');
+    expect(shareUser).toContain('feishu_message_type=share_user');
+    expect(shareUser).toContain('feishu_user_id=ou_123');
+    expect(shareUser).toContain('feishu_open_id=ou_open_123');
+    expect(shareUser).toContain('feishu_name=白瑞');
+    expect(shareUser).toContain('feishu_tenant_key=tenant_x');
+  });
+
+  it('preserves stable metadata for file, audio, media and sticker messages', () => {
+    const file = normalizeFeishuIncomingMessage('file', JSON.stringify({
+      file_key: 'file_1',
+      file_name: 'spec.pdf',
+      file_size: '2048',
+    }));
+    const audio = normalizeFeishuIncomingMessage('audio', JSON.stringify({
+      file_key: 'audio_1',
+      duration: '3200',
+      file_name: 'voice.opus',
+      mime_type: 'audio/ogg',
+      file_size: '1024',
+    }));
+    const media = normalizeFeishuIncomingMessage('media', JSON.stringify({
+      file_key: 'media_1',
+      image_key: 'img_1',
+      file_name: 'video.mp4',
+      duration: '8800',
+      file_size: '4096',
+      mime_type: 'video/mp4',
+    }));
+    const sticker = normalizeFeishuIncomingMessage('sticker', JSON.stringify({
+      file_key: 'stk_1',
+      file_name: 'happy.webp',
+    }));
+
+    expect(file).toBe('[飞书文件] file_key=file_1 file_name=spec.pdf file_size=2048');
+    expect(audio).toBe('[飞书语音] file_key=audio_1 duration=3200 file_name=voice.opus mime_type=audio/ogg file_size=1024');
+    expect(media).toBe('[飞书媒体] file_key=media_1 image_key=img_1 file_name=video.mp4 duration=8800 file_size=4096 mime_type=video/mp4');
+    expect(sticker).toBe('[飞书表情] file_key=stk_1 file_name=happy.webp');
   });
 });
 
