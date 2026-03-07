@@ -42,7 +42,7 @@ export function resolveBrowserMcpRuntime(input: {
 
 export function createBrowserMcpBackend(manager: Pick<
   BrowserManager,
-  'snapshot' | 'navigate' | 'click' | 'type' | 'selectOption' | 'pressKey' | 'waitFor' | 'listTabs' | 'selectTab' | 'newTab' | 'closeCurrentTab'
+  'snapshot' | 'navigate' | 'click' | 'type' | 'selectOption' | 'pressKey' | 'waitFor' | 'listTabs' | 'selectTab' | 'newTab'
 >): {
   listTools(): Promise<Array<Record<string, unknown>>>;
   callTool(name: string, args: Record<string, unknown>): Promise<{ content: Array<{ type: 'text'; text: string }> }>;
@@ -74,15 +74,14 @@ export function createBrowserMcpBackend(manager: Pick<
           type: 'object',
           properties: { time: { type: 'number' }, text: { type: 'string' }, textGone: { type: 'string' } },
         }),
-        tool('browser_tabs', 'List, create, close, or select tabs', {
+        tool('browser_tabs', 'List, create, or select tabs', {
           type: 'object',
           properties: {
-            action: { type: 'string', enum: ['list', 'new', 'close', 'select'] },
+            action: { type: 'string', enum: ['list', 'new', 'select'] },
             index: { type: 'number' },
           },
           required: ['action'],
         }),
-        tool('browser_close', 'Close the current tab', {}),
       ];
       log.info('Browser MCP tools/list', {
         toolNames: tools.map((item) => String(item.name)),
@@ -125,9 +124,6 @@ export function createBrowserMcpBackend(manager: Pick<
           return textResult('OK');
         case 'browser_tabs':
           return textResult(await handleTabsTool(manager, args));
-        case 'browser_close':
-          await manager.closeCurrentTab();
-          return textResult(renderTabs(await manager.listTabs()));
         default:
           throw new Error(`Unsupported browser tool: ${name}`);
       }
@@ -345,23 +341,19 @@ function requiredProps(
 }
 
 async function handleTabsTool(
-  manager: Pick<BrowserManager, 'listTabs' | 'selectTab' | 'newTab' | 'closeCurrentTab'>,
+  manager: Pick<BrowserManager, 'listTabs' | 'selectTab' | 'newTab'>,
   args: Record<string, unknown>,
 ): Promise<string> {
   const action = String(args.action ?? 'list');
   if (action === 'list') {
     return renderTabs(await manager.listTabs());
   }
-  if (action === 'select') {
-    await manager.selectTab(Number(args.index));
-    return renderTabs(await manager.listTabs());
-  }
   if (action === 'new') {
     await manager.newTab();
     return renderTabs(await manager.listTabs());
   }
-  if (action === 'close') {
-    await manager.closeCurrentTab();
+  if (action === 'select') {
+    await manager.selectTab(Number(args.index));
     return renderTabs(await manager.listTabs());
   }
   throw new Error(`Unsupported browser_tabs action: ${action}`);
@@ -434,7 +426,7 @@ function normalizeListenHost(hostname: string | undefined): string {
 function createSdkBrowserServer(
   manager: Pick<
     BrowserManager,
-    'snapshot' | 'navigate' | 'click' | 'type' | 'selectOption' | 'pressKey' | 'waitFor' | 'listTabs' | 'selectTab' | 'newTab' | 'closeCurrentTab'
+    'snapshot' | 'navigate' | 'click' | 'type' | 'selectOption' | 'pressKey' | 'waitFor' | 'listTabs' | 'selectTab' | 'newTab'
   >,
 ): McpServer {
   const backend = createBrowserMcpBackend(manager);
@@ -506,17 +498,12 @@ function createSdkBrowserServer(
   }, async ({ time, text, textGone }) => backend.callTool('browser_wait_for', { time, text, textGone }));
 
   server.registerTool('browser_tabs', {
-    description: 'List, create, close, or select tabs',
+    description: 'List, create, or select tabs',
     inputSchema: {
-      action: z.enum(['list', 'new', 'close', 'select']),
+      action: z.enum(['list', 'new', 'select']),
       index: z.number().optional(),
     },
   }, async ({ action, index }) => backend.callTool('browser_tabs', { action, index }));
-
-  server.registerTool('browser_close', {
-    description: 'Close the current tab',
-    inputSchema: {},
-  }, async () => backend.callTool('browser_close', {}));
 
   return server;
 }

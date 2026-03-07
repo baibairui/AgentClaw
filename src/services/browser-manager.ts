@@ -207,7 +207,8 @@ export class BrowserManager {
   async waitFor(input: { time?: number; text?: string; textGone?: string }): Promise<void> {
     const page = await this.ensureCurrentTab();
     if (typeof input.time === 'number') {
-      await page.waitForTimeout(input.time * 1000);
+      const waitMs = input.time >= 100 ? input.time : input.time * 1000;
+      await page.waitForTimeout(waitMs);
       return;
     }
     if (input.text) {
