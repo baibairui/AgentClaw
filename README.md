@@ -51,29 +51,6 @@
 
 像打开浏览器执行页面操作、做周期提醒、持续跟进任务，本质上都属于给 agent 安装 skill 后获得的能力。包括你自己的业务脚本、运营流程、外部平台动作，也都可以逐步接进来。
 
-## 先配好远程仓库
-
-推荐使用标准 GitHub 地址，避免依赖本机 `~/.ssh/config` 中的 host 别名：
-
-```bash
-git remote set-url origin git@github.com:baibairui/codex-gateway.git
-git remote -v
-```
-
-如果你用 HTTPS：
-
-```bash
-git remote set-url origin https://github.com/baibairui/codex-gateway.git
-```
-
-首次推送前建议执行：
-
-```bash
-git config user.name "你的名字"
-git config user.email "你的邮箱"
-ssh -T git@github.com
-```
-
 ## 环境准备
 
 必须项：
