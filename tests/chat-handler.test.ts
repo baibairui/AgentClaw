@@ -93,7 +93,7 @@ describe('createChatHandler', () => {
   it('runs agent again when reminder trigger arrives', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();
-    sessionStore.createAgent('wecom:u1', {
+    sessionStore.createAgent('local-owner', {
       agentId: 'test',
       name: '测试Agent',
       workspaceDir: '/tmp/test',
@@ -145,7 +145,7 @@ describe('createChatHandler', () => {
       }),
     }));
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '提醒时间到了，我来继续跟进。');
-    expect(sessionStore.getSession('wecom:u1', 'test')).toBe('thread_reminder');
+    expect(sessionStore.getSession('local-owner', 'test')).toBe('thread_reminder');
   });
 
   it('sends a visible error message when codex run fails', async () => {
@@ -174,7 +174,7 @@ describe('createChatHandler', () => {
     await handler({ channel: 'wecom', userId: 'u1', content: 'hello' });
 
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '❌ 请求执行失败，请稍后重试。');
-    expect(sessionStore.getSession('wecom:u1', 'default')).toBeUndefined();
+    expect(sessionStore.getSession('local-owner', 'default')).toBeUndefined();
   });
 
   it('creates and switches agent by command', async () => {
@@ -207,7 +207,7 @@ describe('createChatHandler', () => {
       'u1',
       expect.stringContaining('已创建并切换到 agent：前端工作区 (frontend)'),
     );
-    expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('frontend');
+    expect(sessionStore.getCurrentAgent('local-owner').agentId).toBe('frontend');
   });
 
   it('lists merged skills for current agent by /skills command', async () => {
@@ -318,8 +318,8 @@ describe('createChatHandler', () => {
       workdir: '/tmp/memory-onboarding',
       search: false,
     }));
-    expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('default');
-    expect(sessionStore.getSession('wecom:u1', 'memory-onboarding')).toBe('thread_onboarding');
+    expect(sessionStore.getCurrentAgent('local-owner').agentId).toBe('default');
+    expect(sessionStore.getSession('local-owner', 'memory-onboarding')).toBe('thread_onboarding');
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('开始记忆初始化引导'));
   });
 
@@ -355,20 +355,20 @@ describe('createChatHandler', () => {
       workdir: '/tmp/skill-onboarding',
       search: false,
     }));
-    expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('skill-onboarding');
-    expect(sessionStore.getSession('wecom:u1', 'skill-onboarding')).toBe('thread_skill');
+    expect(sessionStore.getCurrentAgent('local-owner').agentId).toBe('skill-onboarding');
+    expect(sessionStore.getSession('local-owner', 'skill-onboarding')).toBe('thread_skill');
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('技能扩展助手'));
   });
 
   it('reuses existing skill onboarding session when already initialized', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();
-    sessionStore.createAgent('wecom:u1', {
+    sessionStore.createAgent('local-owner', {
       agentId: 'skill-onboarding',
       name: '技能扩展助手',
       workspaceDir: '/tmp/skill-onboarding',
     });
-    sessionStore.setSession('wecom:u1', 'skill-onboarding', 'thread_skill');
+    sessionStore.setSession('local-owner', 'skill-onboarding', 'thread_skill');
     const createWorkspace = vi.fn(() => ({ agentId: 'skill-onboarding', workspaceDir: '/tmp/skill-onboarding' }));
     const run = vi.fn(async () => ({ threadId: 'thread_skill', rawOutput: '' }));
     const handler = createChatHandler({
@@ -393,14 +393,14 @@ describe('createChatHandler', () => {
 
     expect(createWorkspace).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
-    expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('skill-onboarding');
+    expect(sessionStore.getCurrentAgent('local-owner').agentId).toBe('skill-onboarding');
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('已有进行中的会话'));
   });
 
   it('reuses legacy named onboarding agent instead of creating duplicates', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();
-    sessionStore.createAgent('wecom:u1', {
+    sessionStore.createAgent('local-owner', {
       agentId: 'agent-5',
       name: '记忆初始化引导',
       workspaceDir: '/tmp/agent-5',
@@ -437,12 +437,12 @@ describe('createChatHandler', () => {
     const sendText = vi.fn(async () => undefined);
     const run = vi.fn(async () => ({ threadId: 'thread_new', rawOutput: '' }));
     const sessionStore = createSessionStore();
-    sessionStore.createAgent('wecom:u1', {
+    sessionStore.createAgent('local-owner', {
       agentId: 'frontend',
       name: '前端工作区',
       workspaceDir: '/tmp/frontend',
     });
-    sessionStore.setCurrentAgent('wecom:u1', 'frontend');
+    sessionStore.setCurrentAgent('local-owner', 'frontend');
 
     const handler = createChatHandler({
       sessionStore,
@@ -467,7 +467,7 @@ describe('createChatHandler', () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       workdir: '/tmp/frontend',
     }));
-    expect(sessionStore.getSession('wecom:u1', 'frontend')).toBe('thread_new');
+    expect(sessionStore.getSession('local-owner', 'frontend')).toBe('thread_new');
   });
 
   it('opens browser for /open when enabled', async () => {
@@ -561,7 +561,7 @@ describe('createChatHandler', () => {
       workdir: '/tmp/memory-onboarding',
       search: false,
     }));
-    expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('default');
+    expect(sessionStore.getCurrentAgent('local-owner').agentId).toBe('default');
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('shared-memory 为空'));
   });
 
@@ -569,12 +569,12 @@ describe('createChatHandler', () => {
     const sendText = vi.fn(async () => undefined);
     const run = vi.fn(async () => ({ threadId: 'thread_onboarding', rawOutput: '' }));
     const sessionStore = createSessionStore();
-    sessionStore.createAgent('wecom:u1', {
+    sessionStore.createAgent('local-owner', {
       agentId: 'memory-onboarding',
       name: '记忆初始化引导',
       workspaceDir: '/tmp/memory-onboarding',
     });
-    sessionStore.setSession('wecom:u1', 'memory-onboarding', 'thread_onboarding');
+    sessionStore.setSession('local-owner', 'memory-onboarding', 'thread_onboarding');
 
     const handler = createChatHandler({
       sessionStore,
@@ -601,7 +601,7 @@ describe('createChatHandler', () => {
       threadId: 'thread_onboarding',
       workdir: '/tmp/memory-onboarding',
     }));
-    expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('default');
+    expect(sessionStore.getCurrentAgent('local-owner').agentId).toBe('default');
   });
 
   it('does not kick off memory onboarding twice while the first kickoff is still in flight', async () => {

@@ -170,7 +170,7 @@ function buildStewardPrompt(
     '执行要求：',
     '- 先阅读 shared-memory 现有文件，避免重复和同义改写。',
     '- 再检查各 agent 的 memory 目录，尤其是 `memory/daily/`。',
-    '- 更新 shared-memory 下的 `profile.md`、`preferences.md`、`projects.md`、`relationships.md`、`decisions.md`、`open-loops.md`。',
+    '- 更新 shared-memory 下的 `identity.md`、`profile.md`、`preferences.md`、`projects.md`、`relationships.md`、`decisions.md`、`open-loops.md`。',
     '- 在当前工作区写入或追加 `steward-log.md`，记录本轮新增、跳过和待确认项。',
     '- 不要输出给用户的解释性长文，直接修改文件即可。',
   ].join('\n');

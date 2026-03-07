@@ -13,6 +13,13 @@ export interface SystemMemoryStewardWorkspaceRecord {
   sharedMemoryDir: string;
 }
 
+export interface SharedMemorySnapshot {
+  sharedMemoryDir: string;
+  identityContent: string;
+  identityVersion: string;
+  hasIdentity: boolean;
+}
+
 interface CreateAgentWorkspaceInput {
   userId: string;
   agentName: string;
@@ -57,6 +64,10 @@ export class AgentWorkspaceManager {
     this.writeIfMissing(
       path.join(workspaceDir, 'agent.md'),
       renderAgentMd(input.agentName, agentId, template),
+    );
+    this.writeIfMissing(
+      path.join(workspaceDir, 'memory', 'identity.md'),
+      renderIdentityMemory(),
     );
     this.writeIfMissing(
       path.join(workspaceDir, 'memory', 'profile.md'),
@@ -118,6 +129,7 @@ export class AgentWorkspaceManager {
     const userDir = this.resolveUserDir(userId);
     const sharedMemoryDir = this.ensureUserSharedMemory(userDir);
     const files = [
+      'identity.md',
       'profile.md',
       'preferences.md',
       'projects.md',
@@ -136,6 +148,24 @@ export class AgentWorkspaceManager {
       }
     }
     return true;
+  }
+
+  getSharedMemorySnapshot(userId: string): SharedMemorySnapshot {
+    const userDir = this.resolveUserDir(userId);
+    const sharedMemoryDir = this.ensureUserSharedMemory(userDir);
+    const identityPath = path.join(sharedMemoryDir, 'identity.md');
+    const identityContent = fs.existsSync(identityPath)
+      ? fs.readFileSync(identityPath, 'utf8')
+      : renderIdentityMemory();
+    const normalized = normalizeIdentityText(identityContent);
+    return {
+      sharedMemoryDir,
+      identityContent,
+      identityVersion: normalized
+        ? createHash('sha1').update(normalized).digest('hex').slice(0, 16)
+        : 'empty',
+      hasIdentity: !!normalized,
+    };
   }
 
   ensureSystemMemoryStewardWorkspace(userId: string): SystemMemoryStewardWorkspaceRecord {
@@ -211,6 +241,7 @@ export class AgentWorkspaceManager {
     fs.mkdirSync(path.join(sharedMemoryDir, 'daily'), { recursive: true });
 
     this.writeIfMissing(path.join(sharedMemoryDir, 'profile.md'), renderProfileMemory());
+    this.writeIfMissing(path.join(sharedMemoryDir, 'identity.md'), renderIdentityMemory());
     this.writeIfMissing(path.join(sharedMemoryDir, 'preferences.md'), renderPreferencesMemory());
     this.writeIfMissing(path.join(sharedMemoryDir, 'projects.md'), renderProjectsMemory());
     this.writeIfMissing(path.join(sharedMemoryDir, 'relationships.md'), renderRelationshipsMemory());
@@ -224,6 +255,7 @@ export class AgentWorkspaceManager {
         '',
         '这个目录保存同一用户下多个 agent 共享的长期记忆。',
         '- `profile.md`: 用户稳定画像',
+        '- `identity.md`: 用户身份内核（角色、风格、原则）',
         '- `preferences.md`: 用户偏好和表达习惯',
         '- `projects.md`: 长期项目与状态',
         '- `relationships.md`: 长期重要关系',
@@ -260,8 +292,8 @@ function renderWorkspaceAgentsMd(
         '初始化职责：',
         '- 你不是通用助手；你的主要职责是引导用户完成记忆初始化。',
         '- 必须分轮次提问，每轮最多 3 个问题，等待用户回答后再继续。',
-        '- 每轮总结并写入 shared-memory 对应文件，再继续下一轮。',
-        '- 遇到敏感信息先确认“是否写入长期记忆”。',
+        '- 第一轮必须优先建立 identity（身份、角色、风格、原则），并写入 shared-memory/identity.md。',
+        '- 每轮总结后直接覆盖写入 shared-memory 对应文件，再继续下一轮。',
         '- 对用户只输出引导问题和确认结论，不透露目录结构、文件名、工作区路径、系统实现细节。',
         '',
       ]
@@ -294,6 +326,7 @@ function renderWorkspaceAgentsMd(
     '',
     '开始任何任务前，先阅读这些记忆文件：',
     '- `./agent.md`',
+    '- `./memory/identity.md`',
     '- `./memory/profile.md`',
     '- `./memory/preferences.md`',
     '- `./memory/projects.md`',
@@ -301,6 +334,7 @@ function renderWorkspaceAgentsMd(
     '- `./memory/decisions.md`',
     '- `./memory/open-loops.md`',
     '- `./browser-playbook.md`',
+    `- \`${sharedDir}/identity.md\``,
     `- \`${sharedDir}/profile.md\``,
     `- \`${sharedDir}/preferences.md\``,
     `- \`${sharedDir}/projects.md\``,
@@ -311,6 +345,7 @@ function renderWorkspaceAgentsMd(
     `- \`${globalDir}/house-rules.md\``,
     '',
     '记忆规则：',
+    '- `identity.md` 是身份内核，记录角色、表达风格、决策原则；冲突时以最新用户输入直接覆盖。',
     '- `memory/daily/YYYY-MM-DD.md` 用于记录当天短期上下文和临时笔记。',
     `- \`${sharedDir}/daily/YYYY-MM-DD.md\` 用于沉淀跨 agent 的用户短期上下文，供系统记忆管家整理。`,
     '- 只有跨会话稳定、未来还值得再读的信息，才写入长期记忆文件。',
@@ -352,6 +387,7 @@ function renderAgentMd(
     '- Notes:',
     '',
     '记忆地图：',
+    '- `memory/identity.md`: 身份内核（角色、风格、原则）',
     '- `memory/profile.md`: 用户稳定画像',
     '- `memory/preferences.md`: 用户偏好和表达习惯',
     '- `memory/projects.md`: 长期项目与状态',
@@ -373,7 +409,8 @@ function renderWorkspaceReadme(
     ? [
         '- 该 agent 用于一次性或阶段性初始化 shared-memory。',
         '- 使用 `memory-init-checklist.md` 跟踪初始化进度。',
-        '- 每轮提问后都要把已确认信息写入 shared-memory。',
+        '- 第一轮优先完成 identity（身份、角色、风格、原则）。',
+        '- 每轮提问后都要把信息写入 shared-memory；冲突按最新用户输入直接覆盖。',
         '- 浏览器操作策略写在 `browser-playbook.md`。',
       ]
     : template === 'skill-onboarding'
@@ -406,14 +443,11 @@ function renderMemoryInitChecklist(): string {
     '# Memory Init Checklist',
     '',
     '## Progress',
-    '- [ ] Round 1: Profile (name, roles, timezone, long-term goals)',
-    '- [ ] Round 2: Preferences (language, response style, work style)',
-    '- [ ] Round 3: Projects (active projects, goals, constraints, next steps)',
-    '- [ ] Round 4: Relationships (important people and communication notes)',
-    '- [ ] Round 5: Decisions & Open Loops',
-    '',
-    '## Safety',
-    '- [ ] Sensitive items were explicitly confirmed before writing to shared-memory',
+    '- [ ] Round 1: Identity (name, role, communication style, decision principles)',
+    '- [ ] Round 2: Profile (timezone, long-term goals, stable facts)',
+    '- [ ] Round 3: Preferences (language, response style, work style)',
+    '- [ ] Round 4: Projects (active projects, goals, constraints, next steps)',
+    '- [ ] Round 5: Relationships + Decisions + Open Loops',
     '',
     '## Notes',
     '-',
@@ -484,6 +518,7 @@ function renderSystemMemoryStewardAgentsMd(relativeGlobalDir: string, relativeSh
     '开始任务前，先阅读这些文件：',
     '- `./agent.md`',
     `- \`${sharedDir}/README.md\``,
+    `- \`${sharedDir}/identity.md\``,
     `- \`${sharedDir}/profile.md\``,
     `- \`${sharedDir}/preferences.md\``,
     `- \`${sharedDir}/projects.md\``,
@@ -538,6 +573,23 @@ function renderProfileMemory(): string {
     '-',
     '',
     '## Stable Facts',
+    '-',
+    '',
+  ].join('\n');
+}
+
+function renderIdentityMemory(): string {
+  return [
+    '# Identity',
+    '',
+    '## Agent Identity Core',
+    '- Preferred name:',
+    '- Core role:',
+    '- Communication style:',
+    '- Decision principles:',
+    '- Boundaries:',
+    '',
+    '## Voice Hints',
     '-',
     '',
   ].join('\n');
@@ -693,4 +745,20 @@ function hasMeaningfulMemoryContent(content: string): boolean {
     }
   }
   return false;
+}
+
+function normalizeIdentityText(content: string): string {
+  const lines = content.split('\n');
+  const filtered: string[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#') || line.startsWith('>')) {
+      continue;
+    }
+    if (line === '-' || line.endsWith(':')) {
+      continue;
+    }
+    filtered.push(line);
+  }
+  return filtered.join('\n');
 }

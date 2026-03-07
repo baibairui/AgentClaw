@@ -126,6 +126,11 @@ log.debug('WeComCrypto 已初始化');
 const userTaskQueue = new Map<string, Promise<void>>();
 const outboundSendQueue = new Map<string, Promise<void>>();
 
+function resolveUserKey(userId: string): string {
+  void userId;
+  return 'local-owner';
+}
+
 function runInUserQueue(userId: string, task: () => Promise<void>): Promise<void> {
   const previous = userTaskQueue.get(userId) ?? Promise.resolve();
   const next = previous
@@ -180,7 +185,7 @@ const reminderDispatcher = new ReminderDispatcher({
   store: reminderStore,
   sendText,
   onTriggerAgent: async (reminder) => {
-    const sessionUserKey = `${reminder.channel}:${reminder.userId}`;
+    const sessionUserKey = resolveUserKey(reminder.userId);
     await runInUserQueue(sessionUserKey, async () => {
       await handleChatText({
         channel: reminder.channel,
@@ -211,7 +216,7 @@ const app = createApp({
   feishuVerificationToken: config.feishuVerificationToken,
   isDuplicateMessage: (msgId) => dedupStore.isDuplicate(msgId),
   handleText: async ({ channel, userId, content }) => {
-    const sessionUserKey = `${channel}:${userId}`;
+    const sessionUserKey = resolveUserKey(userId);
     await runInUserQueue(sessionUserKey, async () => {
       await handleChatText({ channel, userId, content });
     });

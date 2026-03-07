@@ -21,6 +21,11 @@ export interface SessionListItem {
   updatedAt: number;
 }
 
+export interface SessionState {
+  threadId?: string;
+  boundIdentityVersion?: string;
+}
+
 export interface AgentRecord {
   agentId: string;
   name: string;
@@ -198,34 +203,50 @@ export class SessionStore {
   }
 
   getSession(userId: string, agentId: string): string | undefined {
+    return this.getSessionState(userId, agentId).threadId;
+  }
+
+  getSessionState(userId: string, agentId: string): SessionState {
     const row = this.db
       .prepare(`
-        SELECT current_thread_id AS threadId
+        SELECT current_thread_id AS threadId, bound_identity_version AS boundIdentityVersion
         FROM user_agent_session
         WHERE user_id = ? AND agent_id = ?
       `)
-      .get(userId, agentId) as { threadId?: string } | undefined;
+      .get(userId, agentId) as { threadId?: string; boundIdentityVersion?: string } | undefined;
     if (row?.threadId) {
-      return row.threadId;
+      return {
+        threadId: row.threadId,
+        boundIdentityVersion: typeof row.boundIdentityVersion === 'string' && row.boundIdentityVersion
+          ? row.boundIdentityVersion
+          : undefined,
+      };
     }
     if (agentId === DEFAULT_AGENT_ID) {
-      return this.getLegacySession(userId);
+      return this.getLegacySessionState(userId);
     }
-    return undefined;
+    return {};
   }
 
-  setSession(userId: string, agentId: string, threadId: string, lastPrompt?: string): void {
+  setSession(
+    userId: string,
+    agentId: string,
+    threadId: string,
+    lastPrompt?: string,
+    options: { boundIdentityVersion?: string } = {},
+  ): void {
     const now = this.nextTimestamp();
     this.withTransaction(() => {
       this.db
         .prepare(`
-          INSERT INTO user_agent_session(user_id, agent_id, current_thread_id, updated_at)
-          VALUES(?, ?, ?, ?)
+          INSERT INTO user_agent_session(user_id, agent_id, current_thread_id, bound_identity_version, updated_at)
+          VALUES(?, ?, ?, ?, ?)
           ON CONFLICT(user_id, agent_id) DO UPDATE SET
             current_thread_id = excluded.current_thread_id,
+            bound_identity_version = excluded.bound_identity_version,
             updated_at = excluded.updated_at
         `)
-        .run(userId, agentId, threadId, now);
+        .run(userId, agentId, threadId, options.boundIdentityVersion ?? null, now);
 
       this.db
         .prepare(`
@@ -255,7 +276,7 @@ export class SessionStore {
         .run(userId, agentId, userId, agentId);
 
       if (agentId === DEFAULT_AGENT_ID) {
-        this.persistLegacySession(userId, threadId, lastPrompt, now);
+        this.persistLegacySession(userId, threadId, lastPrompt, now, options.boundIdentityVersion);
       }
 
       if (agentId !== DEFAULT_AGENT_ID) {
@@ -336,6 +357,7 @@ export class SessionStore {
       CREATE TABLE IF NOT EXISTS user_session (
         user_id TEXT PRIMARY KEY,
         current_thread_id TEXT NOT NULL,
+        bound_identity_version TEXT,
         updated_at INTEGER NOT NULL
       );
 
@@ -376,6 +398,7 @@ export class SessionStore {
         user_id TEXT NOT NULL,
         agent_id TEXT NOT NULL,
         current_thread_id TEXT NOT NULL,
+        bound_identity_version TEXT,
         updated_at INTEGER NOT NULL,
         PRIMARY KEY(user_id, agent_id)
       );
@@ -391,6 +414,9 @@ export class SessionStore {
       CREATE INDEX IF NOT EXISTS idx_user_agent_history_lookup
         ON user_agent_history(user_id, agent_id, updated_at DESC);
     `);
+
+    this.ensureColumn('user_session', 'bound_identity_version', 'TEXT');
+    this.ensureColumn('user_agent_session', 'bound_identity_version', 'TEXT');
   }
 
   private getCustomAgent(userId: string, agentId: string): AgentRecord | undefined {
@@ -431,11 +457,20 @@ export class SessionStore {
     };
   }
 
-  private getLegacySession(userId: string): string | undefined {
+  private getLegacySessionState(userId: string): SessionState {
     const row = this.db
-      .prepare('SELECT current_thread_id AS threadId FROM user_session WHERE user_id = ?')
-      .get(userId) as { threadId?: string } | undefined;
-    return row?.threadId;
+      .prepare(`
+        SELECT current_thread_id AS threadId, bound_identity_version AS boundIdentityVersion
+        FROM user_session
+        WHERE user_id = ?
+      `)
+      .get(userId) as { threadId?: string; boundIdentityVersion?: string } | undefined;
+    return {
+      threadId: row?.threadId,
+      boundIdentityVersion: typeof row?.boundIdentityVersion === 'string' && row.boundIdentityVersion
+        ? row.boundIdentityVersion
+        : undefined,
+    };
   }
 
   private listLegacyDetailed(userId: string): SessionListItem[] {
@@ -456,16 +491,23 @@ export class SessionStore {
     return rows.map(mapSessionListItem);
   }
 
-  private persistLegacySession(userId: string, threadId: string, lastPrompt: string | undefined, now: number): void {
+  private persistLegacySession(
+    userId: string,
+    threadId: string,
+    lastPrompt: string | undefined,
+    now: number,
+    boundIdentityVersion?: string,
+  ): void {
     this.db
       .prepare(`
-        INSERT INTO user_session(user_id, current_thread_id, updated_at)
-        VALUES(?, ?, ?)
+        INSERT INTO user_session(user_id, current_thread_id, bound_identity_version, updated_at)
+        VALUES(?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
           current_thread_id = excluded.current_thread_id,
+          bound_identity_version = excluded.bound_identity_version,
           updated_at = excluded.updated_at
       `)
-      .run(userId, threadId, now);
+      .run(userId, threadId, boundIdentityVersion ?? null, now);
 
     this.db
       .prepare(`
@@ -527,6 +569,15 @@ export class SessionStore {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  private ensureColumn(table: string, column: string, definition: string): void {
+    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>;
+    const hasColumn = rows.some((row) => row.name === column);
+    if (hasColumn) {
+      return;
+    }
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 
   private nextTimestamp(): number {

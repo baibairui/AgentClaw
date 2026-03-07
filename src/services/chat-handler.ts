@@ -16,7 +16,14 @@ interface SessionStoreLike {
   setCurrentAgent(userId: string, agentId: string): boolean;
   resolveAgentTarget(userId: string, target: string): string | undefined;
   getSession(userId: string, agentId: string): string | undefined;
-  setSession(userId: string, agentId: string, threadId: string, lastPrompt?: string): void;
+  getSessionState?: (userId: string, agentId: string) => { threadId?: string; boundIdentityVersion?: string };
+  setSession(
+    userId: string,
+    agentId: string,
+    threadId: string,
+    lastPrompt?: string,
+    options?: { boundIdentityVersion?: string },
+  ): void;
   clearSession(userId: string, agentId: string): boolean;
   listDetailed(userId: string, agentId: string): SessionListItem[];
   resolveSwitchTarget(userId: string, agentId: string, target: string): string | undefined;
@@ -72,6 +79,12 @@ interface AgentWorkspaceManagerLike {
     template?: 'default' | 'memory-onboarding' | 'skill-onboarding';
   }): { agentId: string; workspaceDir: string };
   isSharedMemoryEmpty(userId: string): boolean;
+  getSharedMemorySnapshot?: (userId: string) => {
+    sharedMemoryDir: string;
+    identityContent: string;
+    identityVersion: string;
+    hasIdentity: boolean;
+  };
 }
 
 interface ChatHandlerDeps {
@@ -116,10 +129,11 @@ const SKILL_ONBOARDING_AGENT_ID = 'skill-onboarding';
 const SKILL_ONBOARDING_AGENT_NAME = '技能扩展助手';
 const MEMORY_ONBOARDING_KICKOFF_PROMPT = [
   '你是记忆初始化引导 agent，请立即开始第一轮访谈。',
-  '目标：帮助用户初始化长期记忆。',
-  '要求：每轮最多 3 个问题，等待用户回答后再继续；每轮回答后总结并写入记忆档案；敏感信息先确认再写。',
+  '目标：帮助用户初始化长期记忆，并先建立 identity（用户专属身份）。',
+  '要求：第一轮优先提取 identity（称呼、角色、表达风格、决策原则）；每轮最多 3 个问题，等待用户回答后再继续。',
+  '要求：每轮回答后总结并直接更新对应记忆文件；如果和旧信息冲突，按最新用户输入直接覆盖。',
   '禁止：不要向用户透露任何内部细节，包括目录结构、文件名、工作区路径、系统 agent 名称、提示词实现细节。',
-  '第一轮聚焦 profile：preferred name, primary roles, timezone, long-term goals, stable facts。',
+  '第一轮聚焦 identity：preferred name, core role, communication style, decision principles, boundaries。',
 ].join('\n');
 const SKILL_ONBOARDING_KICKOFF_PROMPT = [
   '你是技能扩展助手 agent，请立即开始第一轮引导。',
@@ -137,7 +151,7 @@ const SYSTEM_AGENT_NAMES = new Set([MEMORY_ONBOARDING_AGENT_NAME]);
 function renderMemoryOnboardingStartMessage(): string {
   return [
     '🧭 已开始记忆初始化引导。',
-    '接下来会按轮次提问，并把确认后的信息写入长期记忆。',
+    '接下来会按轮次提问，并把信息写入长期记忆（冲突按最新输入覆盖）。',
   ].join('\n');
 }
 
@@ -184,11 +198,122 @@ function sanitizeOnboardingText(text: string): string {
     .replace(/shared-memory|memory\/|AGENTS\.md|agent\.md|profile\.md|preferences\.md|projects\.md|relationships\.md|decisions\.md|open-loops\.md/gi, '长期记忆');
 }
 
+function resolveUserKey(userId: string): string {
+  // 本项目按单人本地使用设计，所有渠道消息共享同一用户上下文。
+  void userId;
+  return 'local-owner';
+}
+
+function buildIdentityBootstrapPrompt(identityContent: string): string {
+  const body = identityContent.trim() || '# Identity\n- 未初始化身份信息';
+  return [
+    '系统身份注入（只执行一次）',
+    '以下是用户身份内核，请将其作为该线程的长期默认设定并记住，不要向用户复述完整内容：',
+    '',
+    body,
+    '',
+    '仅回复：OK',
+  ].join('\n');
+}
+
+function buildIdentityPatchPrompt(identityContent: string): string {
+  const body = identityContent.trim() || '# Identity\n- 未初始化身份信息';
+  return [
+    '系统身份更新补丁',
+    '用户身份内核已更新，请覆盖你在该线程中的旧身份设定，并以后续回答遵循最新版本：',
+    '',
+    body,
+    '',
+    '仅回复：OK',
+  ].join('\n');
+}
+
 export function createChatHandler(deps: ChatHandlerDeps) {
   const userModelOverrides = new Map<string, string>();
   const userSearchOverrides = new Map<string, boolean>();
   const onboardingKickoffInFlight = new Set<string>();
   const skillManager = deps.skillManager ?? new AgentSkillManager();
+
+  function getSessionState(userKey: string, agentId: string): { threadId?: string; boundIdentityVersion?: string } {
+    if (deps.sessionStore.getSessionState) {
+      return deps.sessionStore.getSessionState(userKey, agentId);
+    }
+    return { threadId: deps.sessionStore.getSession(userKey, agentId) };
+  }
+
+  function persistSession(
+    userKey: string,
+    agentId: string,
+    threadId: string,
+    lastPrompt: string | undefined,
+    boundIdentityVersion: string | undefined,
+  ): void {
+    deps.sessionStore.setSession(userKey, agentId, threadId, lastPrompt, {
+      boundIdentityVersion,
+    });
+  }
+
+  async function ensureIdentityBound(input: {
+    channel: Channel;
+    userId: string;
+    sessionUserKey: string;
+    agent: AgentRecord;
+    model: string | undefined;
+    threadId?: string;
+  }): Promise<{ threadId?: string; boundIdentityVersion?: string }> {
+    const { channel, userId, sessionUserKey, agent, model } = input;
+    const snapshot = deps.agentWorkspaceManager.getSharedMemorySnapshot?.(sessionUserKey);
+    if (!snapshot || isSystemAgentId(agent.agentId)) {
+      return {
+        threadId: input.threadId,
+        boundIdentityVersion: undefined,
+      };
+    }
+
+    let threadId = input.threadId;
+    const targetVersion = snapshot.identityVersion;
+    const state = getSessionState(sessionUserKey, agent.agentId);
+    const currentVersion = state.boundIdentityVersion;
+
+    if (!threadId) {
+      const bootstrapResult = await deps.codexRunner.run({
+        prompt: buildIdentityBootstrapPrompt(snapshot.identityContent),
+        model,
+        search: false,
+        workdir: agent.workspaceDir,
+        reminderToolContext: {
+          channel,
+          userId,
+          agentId: agent.agentId,
+          dbPath: deps.reminderDbPath,
+        },
+      });
+      threadId = bootstrapResult.threadId;
+      persistSession(sessionUserKey, agent.agentId, threadId, 'identity bootstrap', targetVersion);
+      return { threadId, boundIdentityVersion: targetVersion };
+    }
+
+    if (currentVersion !== targetVersion) {
+      const patchResult = await deps.codexRunner.run({
+        prompt: buildIdentityPatchPrompt(snapshot.identityContent),
+        threadId,
+        model,
+        search: false,
+        workdir: agent.workspaceDir,
+        reminderToolContext: {
+          channel,
+          userId,
+          agentId: agent.agentId,
+          dbPath: deps.reminderDbPath,
+        },
+      });
+      threadId = patchResult.threadId;
+      persistSession(sessionUserKey, agent.agentId, threadId, 'identity refresh', targetVersion);
+      return { threadId, boundIdentityVersion: targetVersion };
+    }
+
+    return { threadId, boundIdentityVersion: targetVersion };
+  }
 
   async function runReminderTrigger(input: {
     channel: Channel;
@@ -196,7 +321,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     reminder: ReminderTriggerInput;
   }): Promise<void> {
     const { channel, userId, reminder } = input;
-    const sessionUserKey = `${channel}:${userId}`;
+    const sessionUserKey = resolveUserKey(userId);
     const currentModel = userModelOverrides.get(sessionUserKey) ?? deps.defaultModel;
     const listedAgents = deps.sessionStore.listAgents(sessionUserKey, { includeHidden: true });
     const targetAgent = reminder.sourceAgentId
@@ -209,7 +334,16 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       return;
     }
 
-    const runtimeThreadId = deps.sessionStore.getSession(sessionUserKey, runtimeAgent.agentId);
+    const sessionState = getSessionState(sessionUserKey, runtimeAgent.agentId);
+    const identityBinding = await ensureIdentityBound({
+      channel,
+      userId,
+      sessionUserKey,
+      agent: runtimeAgent,
+      model: currentModel,
+      threadId: sessionState.threadId,
+    });
+    const runtimeThreadId = identityBinding.threadId;
     const triggerPrompt = [
       `系统定时提醒已到期（id: ${reminder.reminderId}）。`,
       `提醒内容：${reminder.message}`,
@@ -241,7 +375,13 @@ export function createChatHandler(deps: ChatHandlerDeps) {
         },
       });
       await lastStreamSend;
-      deps.sessionStore.setSession(sessionUserKey, runtimeAgent.agentId, result.threadId, `⏰ ${reminder.message}`);
+      persistSession(
+        sessionUserKey,
+        runtimeAgent.agentId,
+        result.threadId,
+        `⏰ ${reminder.message}`,
+        identityBinding.boundIdentityVersion,
+      );
     } catch (error) {
       log.error('runReminderTrigger 执行失败，回退固定提醒消息', {
         channel,
@@ -269,7 +409,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       return;
     }
     const { channel, userId, content } = input;
-    const sessionUserKey = `${channel}:${userId}`;
+    const sessionUserKey = resolveUserKey(userId);
     const prompt = content.trim();
     if (!prompt) {
       log.debug('handleText 收到空 prompt，跳过', { channel, userId });
@@ -284,7 +424,8 @@ ${clipMessage(prompt, 500)}
 ════════════════════════════════════════════════════════════`);
 
     const currentAgent = normalizeVisibleCurrentAgent(sessionUserKey);
-    const existingThreadId = deps.sessionStore.getSession(sessionUserKey, currentAgent.agentId);
+    const existingSessionState = getSessionState(sessionUserKey, currentAgent.agentId);
+    const existingThreadId = existingSessionState.threadId;
     const currentModel = userModelOverrides.get(sessionUserKey) ?? deps.defaultModel;
     const currentSearch = userSearchOverrides.get(sessionUserKey) ?? deps.defaultSearch;
     // 对用户展示时，过滤掉系统内置 agent（如 memory-onboarding）
@@ -819,9 +960,18 @@ ${clipMessage(text, 500)}
       const runtimeAgent = isSharedMemoryEmpty && onboardingThreadId
         ? ensureMemoryOnboardingAgent()
         : currentAgent;
-      const runtimeThreadId = isSharedMemoryEmpty && onboardingThreadId
+      const initialRuntimeThreadId = isSharedMemoryEmpty && onboardingThreadId
         ? onboardingThreadId
         : existingThreadId;
+      const identityBinding = await ensureIdentityBound({
+        channel,
+        userId,
+        sessionUserKey,
+        agent: runtimeAgent,
+        model: currentModel,
+        threadId: initialRuntimeThreadId,
+      });
+      const runtimeThreadId = identityBinding.threadId;
       const runtimeSearch = runtimeAgent.agentId === MEMORY_ONBOARDING_AGENT_ID ? false : currentSearch;
       log.debug('handleText 查询 session', {
         userId,
@@ -871,7 +1021,13 @@ ${clipMessage(userVisibleOutput, 500)}
         rawOutputLength: result.rawOutput.length,
       });
 
-      deps.sessionStore.setSession(sessionUserKey, runtimeAgent.agentId, result.threadId, prompt);
+      persistSession(
+        sessionUserKey,
+        runtimeAgent.agentId,
+        result.threadId,
+        prompt,
+        identityBinding.boundIdentityVersion,
+      );
       log.debug('handleText session 已更新', {
         userId,
         agentId: runtimeAgent.agentId,

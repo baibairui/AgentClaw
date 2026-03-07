@@ -20,6 +20,7 @@ describe('AgentWorkspaceManager', () => {
     expect(result.agentId).toBe('frontend-pair');
     expect(fs.existsSync(path.join(result.workspaceDir, 'AGENTS.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, 'agent.md'))).toBe(true);
+    expect(fs.existsSync(path.join(result.workspaceDir, 'memory', 'identity.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, 'memory', 'profile.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, 'memory', 'preferences.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, 'memory', 'projects.md'))).toBe(true);
@@ -64,7 +65,7 @@ describe('AgentWorkspaceManager', () => {
 
     expect(result.agentId).toBe('memory-onboarding');
     expect(agentsMd).toContain('初始化职责');
-    expect(checklist).toContain('Round 1: Profile');
+    expect(checklist).toContain('Round 1: Identity');
   });
 
   it('creates scaffold for skill onboarding template', () => {
