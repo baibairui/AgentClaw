@@ -29,7 +29,7 @@ log.info('服务启动初始化...', {
   codexModel: config.codexModel ?? '(codex cli default)',
   codexSearch: config.codexSearch,
   codexWorkdir: config.codexWorkdir,
-  codexAgentsDir: config.codexAgentsDir ?? '(default .data/agents)',
+  codexAgentsDir: config.codexAgentsDir,
   commandTimeoutMs: config.commandTimeoutMs ?? '(adaptive)',
   commandTimeoutMinMs: config.commandTimeoutMinMs,
   commandTimeoutMaxMs: config.commandTimeoutMaxMs,
@@ -55,7 +55,7 @@ log.debug('数据目录已就绪', { dataDir });
 const feishuImageCacheDir = path.join(dataDir, 'feishu-images');
 fs.mkdirSync(feishuImageCacheDir, { recursive: true });
 
-const agentsDir = path.resolve(config.codexAgentsDir ?? path.join(dataDir, 'agents'));
+const agentsDir = path.resolve(config.codexAgentsDir);
 fs.mkdirSync(agentsDir, { recursive: true });
 log.debug('Agent 工作区目录已就绪', { agentsDir });
 const reminderDbPath = path.join(dataDir, 'reminders.db');
