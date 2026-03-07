@@ -1,4 +1,4 @@
-# wecom-codex-gateway
+# codex-gateway
 
 [![CI](https://github.com/baibairui/codex-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/baibairui/codex-gateway/actions/workflows/ci.yml)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](./LICENSE)
