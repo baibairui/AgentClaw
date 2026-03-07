@@ -101,6 +101,13 @@ interface ChatHandlerDeps {
   defaultSearch: boolean;
   reminderDbPath: string;
   sendText: (channel: Channel, userId: string, content: string) => Promise<void>;
+  sendStreamingText?: (
+    channel: Channel,
+    userId: string,
+    streamId: string,
+    content: string,
+    done: boolean,
+  ) => Promise<void>;
   skillManager?: {
     listEffectiveSkills(workspaceDir: string): SkillCatalogEntry[];
     listGlobalSkills(workspaceDir: string): SkillCatalogEntry[];
@@ -1056,6 +1063,9 @@ ${clipMessage(text, 500)}
 
     try {
       let lastStreamSend: Promise<void> = Promise.resolve();
+      const streamId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      let streamedText = '';
+      let lastFeishuStreamFlushAt = 0;
       const runtimeAgent = shouldStartMemoryOnboarding && onboardingThreadId
         ? ensureMemoryOnboardingAgent()
         : currentAgent;
@@ -1104,6 +1114,24 @@ ${clipMessage(userVisibleOutput, 500)}
           if (!userVisibleOutput) {
             return;
           }
+          if (channel === 'feishu' && deps.sendStreamingText) {
+            streamedText += userVisibleOutput;
+            const now = Date.now();
+            if (now - lastFeishuStreamFlushAt < 450) {
+              return;
+            }
+            lastFeishuStreamFlushAt = now;
+            const snapshot = streamedText;
+            lastStreamSend = deps.sendStreamingText(channel, userId, streamId, snapshot, false).catch(async (err) => {
+              log.error('handleText onMessage 推送失败', err);
+              try {
+                await deps.sendText(channel, userId, '⚠️ 消息发送失败，请检查机器人发送权限或消息类型配置。');
+              } catch (fallbackErr) {
+                log.error('handleText onMessage fallback 推送失败', fallbackErr);
+              }
+            });
+            return;
+          }
           lastStreamSend = deps.sendText(channel, userId, userVisibleOutput).catch(async (err) => {
             log.error('handleText onMessage 推送失败', err);
             try {
@@ -1115,6 +1143,9 @@ ${clipMessage(userVisibleOutput, 500)}
         },
       });
       const elapsed = Date.now() - startTime;
+      if (channel === 'feishu' && deps.sendStreamingText && streamedText) {
+        await deps.sendStreamingText(channel, userId, streamId, streamedText, true);
+      }
       await lastStreamSend;
 
       log.info('<<< handleText Codex 执行完成', {

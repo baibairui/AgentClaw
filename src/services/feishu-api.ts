@@ -41,6 +41,9 @@ interface FeishuSdkClient {
       }) => Promise<{
         code?: number;
         msg?: string;
+        data?: {
+          message_id?: string;
+        };
       }>;
       reply: (payload: {
         path: { message_id: string };
@@ -49,6 +52,19 @@ interface FeishuSdkClient {
           msg_type: string;
           reply_in_thread?: boolean;
           uuid?: string;
+        };
+      }) => Promise<{
+        code?: number;
+        msg?: string;
+        data?: {
+          message_id?: string;
+        };
+      }>;
+      update: (payload: {
+        path: { message_id: string };
+        data: {
+          msg_type: string;
+          content: string;
         };
       }) => Promise<{
         code?: number;
@@ -158,18 +174,20 @@ export class FeishuApi {
     });
   }
 
-  async sendText(openId: string, content: string, options?: { replyToMessageId?: string }): Promise<void> {
+  async sendText(openId: string, content: string, options?: { replyToMessageId?: string }): Promise<string | undefined> {
     const chunks = splitFeishuTextByUtf8Bytes(content);
+    let lastMessageId: string | undefined;
     for (const chunk of chunks) {
-      await this.sendSingleMessage(openId, {
+      lastMessageId = await this.sendSingleMessage(openId, {
         msgType: 'text',
         content: { text: chunk },
         replyToMessageId: options?.replyToMessageId,
       });
     }
+    return lastMessageId;
   }
 
-  async sendMessage(openId: string, message: FeishuOutgoingMessage): Promise<void> {
+  async sendMessage(openId: string, message: FeishuOutgoingMessage): Promise<string | undefined> {
     const msgType = message.msgType.trim();
     if (!msgType) {
       throw new Error('feishu send failed: msgType is required');
@@ -178,17 +196,36 @@ export class FeishuApi {
     if (msgType === 'text') {
       const textContent = extractTextContent(message.content);
       const chunks = splitFeishuTextByUtf8Bytes(textContent);
+      let lastMessageId: string | undefined;
       for (const chunk of chunks) {
-        await this.sendSingleMessage(openId, {
+        lastMessageId = await this.sendSingleMessage(openId, {
           msgType: 'text',
           content: { text: chunk },
           replyToMessageId: message.replyToMessageId,
         });
       }
-      return;
+      return lastMessageId;
     }
 
-    await this.sendSingleMessage(openId, message);
+    return this.sendSingleMessage(openId, message);
+  }
+
+  async updateMessage(messageId: string, msgType: 'text' | 'post', content: Record<string, unknown> | string): Promise<void> {
+    const normalizedMessageId = messageId.trim();
+    if (!normalizedMessageId) {
+      throw new Error('feishu update failed: messageId is required');
+    }
+    const payload = await this.resolveOutgoingContentPayload(msgType, content);
+    const response = await this.sdkClient.im.message.update({
+      path: { message_id: normalizedMessageId },
+      data: {
+        msg_type: msgType,
+        content: payload,
+      },
+    });
+    if (response.code !== 0) {
+      throw new Error(`feishu update failed: ${response.code ?? 'unknown'} ${response.msg ?? 'unknown'}`);
+    }
   }
 
   async downloadImage(imageKey: string): Promise<string> {
@@ -299,8 +336,9 @@ export class FeishuApi {
     throw lastError ?? new Error(`feishu message resource download failed: unsupported type ${types.join(',')}`);
   }
 
-  private async sendSingleMessage(openId: string, message: FeishuOutgoingMessage): Promise<void> {
+  private async sendSingleMessage(openId: string, message: FeishuOutgoingMessage): Promise<string | undefined> {
     let lastError: Error | undefined;
+    let lastMessageId: string | undefined;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const content = await this.resolveOutgoingContentPayload(message.msgType, message.content);
@@ -316,7 +354,8 @@ export class FeishuApi {
               },
             });
             if (response.code === 0) {
-              return;
+              lastMessageId = response.data?.message_id;
+              return lastMessageId;
             }
             lastError = new Error(`feishu send failed: reply ${response.code ?? 'unknown'} ${response.msg ?? 'unknown'}`);
           } catch (replyError) {
@@ -340,7 +379,8 @@ export class FeishuApi {
           },
         });
         if (response.code === 0) {
-          return;
+          lastMessageId = response.data?.message_id;
+          return lastMessageId;
         }
         lastError = new Error(`feishu send failed: create ${response.code ?? 'unknown'} ${response.msg ?? 'unknown'}`);
       } catch (error) {

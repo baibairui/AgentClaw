@@ -138,6 +138,7 @@ if (wecomCrypto) {
 const userTaskQueue = new Map<string, Promise<void>>();
 const outboundSendQueue = new Map<string, Promise<void>>();
 const inboundReplyContext = new Map<string, { messageId?: string }>();
+const feishuStreamingState = new Map<string, { messageId?: string }>();
 
 interface GatewayStructuredMessage {
   __gateway_message__: true;
@@ -204,6 +205,7 @@ const handleChatText = createChatHandler({
   defaultSearch: config.codexSearch,
   reminderDbPath,
   sendText,
+  sendStreamingText,
 });
 
 const reminderStore = new ReminderStore(reminderDbPath);
@@ -269,6 +271,35 @@ const app = createApp({
 
 async function sendText(channel: 'wecom' | 'feishu', userId: string, content: string): Promise<void> {
   await enqueueSendText(channel, userId, content);
+}
+
+async function sendStreamingText(
+  channel: 'wecom' | 'feishu',
+  userId: string,
+  streamId: string,
+  content: string,
+  done: boolean,
+): Promise<void> {
+  if (channel !== 'feishu' || !feishuApi) {
+    await sendText(channel, userId, content);
+    return;
+  }
+  const key = `${channel}:${userId}:${streamId}`;
+  await enqueueOutboundSend(channel, userId, async () => {
+    const state = feishuStreamingState.get(key);
+    if (!state?.messageId) {
+      const replyContext = inboundReplyContext.get(`${channel}:${userId}`);
+      const createdMessageId = await feishuApi.sendText(userId, content, {
+        replyToMessageId: replyContext?.messageId,
+      });
+      feishuStreamingState.set(key, { messageId: createdMessageId });
+      return;
+    }
+    await feishuApi.updateMessage(state.messageId, 'text', { text: content });
+  });
+  if (done) {
+    feishuStreamingState.delete(key);
+  }
 }
 
 async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, content: string): Promise<void> {
