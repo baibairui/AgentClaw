@@ -17,6 +17,7 @@ import { installReminderToolSkill } from './services/reminder-tool-skill.js';
 import { WeComApi } from './services/wecom-api.js';
 import { FeishuApi } from './services/feishu-api.js';
 import { WeComCrypto } from './utils/wecom-crypto.js';
+import { appendFeishuAttachmentMetadata, extractFeishuBinaryRef } from './utils/feishu-inbound.js';
 import { SessionStore } from './stores/session-store.js';
 import { MessageDedupStore } from './stores/message-dedup-store.js';
 import { RateLimitStore } from './stores/rate-limit-store.js';
@@ -431,7 +432,10 @@ async function enrichInboundContent(channel: 'wecom' | 'feishu', content: string
       type: mapFeishuResourceTypes(inboundRef.kind),
     });
     return {
-      content: `${content}\nlocal_${inboundRef.kind}_path=${localPath}`,
+      content: appendFeishuAttachmentMetadata(content, {
+        kind: inboundRef.kind,
+        localPath,
+      }),
       attachmentRequired: true,
       attachmentDownloaded: true,
     };
@@ -462,35 +466,6 @@ function mapFeishuResourceTypes(kind: 'image' | 'file' | 'audio' | 'media' | 'st
     return ['file', 'image'];
   }
   return ['file', 'image'];
-}
-
-function extractFeishuBinaryRef(content: string): {
-  kind: 'image' | 'file' | 'audio' | 'media' | 'sticker';
-  key: string;
-  messageId?: string;
-} | undefined {
-  const messageId = content.match(/\bmessage_id=([^\s]+)/)?.[1];
-  const image = content.match(/^\[飞书图片]\s+image_key=([^\s]+)/);
-  if (image?.[1]) {
-    return { kind: 'image', key: image[1], messageId };
-  }
-  const file = content.match(/^\[飞书文件]\s+file_key=([^\s]+)/);
-  if (file?.[1]) {
-    return { kind: 'file', key: file[1], messageId };
-  }
-  const audio = content.match(/^\[飞书语音]\s+file_key=([^\s]+)/);
-  if (audio?.[1]) {
-    return { kind: 'audio', key: audio[1], messageId };
-  }
-  const media = content.match(/^\[飞书媒体]\s+file_key=([^\s]+)/);
-  if (media?.[1]) {
-    return { kind: 'media', key: media[1], messageId };
-  }
-  const sticker = content.match(/^\[飞书表情]\s+file_key=([^\s]+)/);
-  if (sticker?.[1]) {
-    return { kind: 'sticker', key: sticker[1], messageId };
-  }
-  return undefined;
 }
 
 app.listen(config.port, () => {

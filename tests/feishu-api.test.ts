@@ -104,6 +104,84 @@ describe('FeishuApi', () => {
     ]);
   });
 
+  it('normalizes interactive template shorthand before sending', async () => {
+    const createCalls: Array<{ msg_type: string; content: string }> = [];
+    const sdkClient = {
+      im: {
+        message: {
+          create: vi.fn(async (payload: { data: { msg_type: string; content: string } }) => {
+            createCalls.push(payload.data);
+            return { code: 0, msg: 'ok' };
+          }),
+          reply: vi.fn(),
+        },
+        image: { create: vi.fn() },
+        file: { create: vi.fn() },
+        messageResource: { get: vi.fn() },
+      },
+    };
+
+    const api = new FeishuApi({
+      appId: 'cli_xxx',
+      appSecret: 'yyy',
+      timeoutMs: 2000,
+      sdkClient,
+    });
+
+    await api.sendMessage('ou_a', {
+      msgType: 'interactive',
+      content: {
+        template_id: 'AAqC5c9997YMX',
+        template_variable: { name: '白瑞' },
+      },
+    });
+
+    expect(JSON.parse(createCalls[0]?.content ?? '{}')).toEqual({
+      type: 'template',
+      data: {
+        template_id: 'AAqC5c9997YMX',
+        template_variable: { name: '白瑞' },
+      },
+    });
+  });
+
+  it('normalizes post text shorthand before sending', async () => {
+    const createCalls: Array<{ msg_type: string; content: string }> = [];
+    const sdkClient = {
+      im: {
+        message: {
+          create: vi.fn(async (payload: { data: { msg_type: string; content: string } }) => {
+            createCalls.push(payload.data);
+            return { code: 0, msg: 'ok' };
+          }),
+          reply: vi.fn(),
+        },
+        image: { create: vi.fn() },
+        file: { create: vi.fn() },
+        messageResource: { get: vi.fn() },
+      },
+    };
+
+    const api = new FeishuApi({
+      appId: 'cli_xxx',
+      appSecret: 'yyy',
+      timeoutMs: 2000,
+      sdkClient,
+    });
+
+    await api.sendMessage('ou_a', {
+      msgType: 'post',
+      content: '今天完成了网关改造',
+    });
+
+    expect(JSON.parse(createCalls[0]?.content ?? '{}')).toEqual({
+      zh_cn: {
+        title: '',
+        content: [[{ tag: 'text', text: '今天完成了网关改造' }]],
+      },
+    });
+  });
+
   it('uploads local image path before sending image message', async () => {
     const imageCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'feishu-upload-image-'));
     const localImagePath = path.join(imageCacheDir, 'sample.png');
@@ -208,6 +286,56 @@ describe('FeishuApi', () => {
     expect(JSON.parse(messageCreates[0]?.content ?? '{}')).toEqual({
       file_key: 'file_uploaded_1',
       duration: 2,
+    });
+  });
+
+  it('uploads local sticker path before sending sticker message', async () => {
+    const imageCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'feishu-upload-sticker-'));
+    const localStickerPath = path.join(imageCacheDir, 'smile.webp');
+    fs.writeFileSync(localStickerPath, Buffer.from('fake-sticker'));
+    const fileCreates: Array<{ file_type: string; file_name: string; duration?: number }> = [];
+    const messageCreates: Array<{ msg_type: string; content: string }> = [];
+    const sdkClient = {
+      im: {
+        message: {
+          create: vi.fn(async (payload: { data: { msg_type: string; content: string } }) => {
+            messageCreates.push(payload.data);
+            return { code: 0, msg: 'ok' };
+          }),
+          reply: vi.fn(),
+        },
+        image: { create: vi.fn() },
+        file: {
+          create: vi.fn(async (payload: { data: { file_type: string; file_name: string; duration?: number } }) => {
+            fileCreates.push(payload.data);
+            return { file_key: 'file_uploaded_sticker_1' };
+          }),
+        },
+        messageResource: { get: vi.fn() },
+      },
+    };
+
+    const api = new FeishuApi({
+      appId: 'cli_xxx',
+      appSecret: 'yyy',
+      timeoutMs: 2000,
+      imageCacheDir,
+      sdkClient,
+    });
+
+    await api.sendMessage('ou_a', {
+      msgType: 'sticker',
+      content: {
+        local_sticker_path: localStickerPath,
+      },
+    });
+
+    expect(fileCreates).toHaveLength(1);
+    expect(fileCreates[0]?.file_name).toBe('smile.webp');
+    expect(messageCreates).toHaveLength(1);
+    expect(messageCreates[0]?.msg_type).toBe('sticker');
+    expect(JSON.parse(messageCreates[0]?.content ?? '{}')).toEqual({
+      file_key: 'file_uploaded_sticker_1',
     });
   });
 

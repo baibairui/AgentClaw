@@ -526,6 +526,36 @@ describe('createChatHandler', () => {
     expect(sessionStore.getSession('local-owner', 'frontend')).toBe('thread_new');
   });
 
+  it('uses channel-specific outbound prompt for wecom', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const run = vi.fn(async () => ({ threadId: 'thread_new', rawOutput: '' }));
+    const sessionStore = createSessionStore();
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'frontend', workspaceDir: '/tmp/frontend' }),
+        isSharedMemoryEmpty: () => false,
+      },
+      browserOpenEnabled: false,
+      runnerEnabled: true,
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: 'hello' });
+
+    const prompt = run.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).toContain('你必须遵循以下企微回发协议：');
+    expect(prompt).toContain('企微常用 msg_type：text、markdown、image、voice、video、file。');
+    expect(prompt).not.toContain('飞书常用 msg_type');
+  });
+
   it('publishes workspace for /deploy-workspace command', async () => {
     const sendText = vi.fn(async () => undefined);
     const publish = vi.fn(async () => ({ output: 'publish ok' }));

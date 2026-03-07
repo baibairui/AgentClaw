@@ -248,9 +248,9 @@ function buildIdentityPatchPrompt(identityContent: string): string {
   ].join('\n');
 }
 
-function buildOutboundMessageProtocolPrompt(userPrompt: string): string {
+function buildFeishuOutboundMessageProtocolPrompt(userPrompt: string): string {
   return [
-    '你必须遵循以下回发协议：',
+    '你必须遵循以下飞书回发协议：',
     '1. 默认输出普通文本，不要输出 JSON。',
     '2. 只有当用户明确要求“请发送/回发某种非文本消息”时，才输出单个 JSON 对象。',
     '3. 输出 JSON 时禁止使用 markdown 代码块，禁止附加解释文字，只输出 JSON 本体。',
@@ -259,10 +259,36 @@ function buildOutboundMessageProtocolPrompt(userPrompt: string): string {
     '6. 若用户只是发来图片/文件并让你分析，不算“要求回发非文本”，此时必须回复普通文本分析结果。',
     '7. 若用户输入中包含 local_image_path/local_file_path/local_audio_path/local_media_path/local_sticker_path，必须先读取对应本地文件并给出分析结果，不要先追问目标。',
     '8. 若明确需要回发飞书非文本消息，且你已经拿到本地文件路径，可在 JSON content 中直接提供 local_image_path/local_file_path/local_audio_path/local_media_path，网关会自动上传后发送。',
+    '9. 回发飞书 interactive 时，可优先使用简写 content：{"template_id":"...","template_variable":{...}}，网关会自动转换为模板卡片格式。',
+    '10. 回发飞书 post 时，若只是普通富文本段落，可直接把 content 写成字符串，网关会自动转换为基础 post 格式。',
+    '11. 回发飞书 sticker 时，若已有本地贴纸文件，可直接提供 local_sticker_path，网关会自动上传后发送。',
     '',
     '用户输入如下：',
     userPrompt,
   ].join('\n');
+}
+
+function buildWeComOutboundMessageProtocolPrompt(userPrompt: string): string {
+  return [
+    '你必须遵循以下企微回发协议：',
+    '1. 默认输出普通文本，不要输出 JSON。',
+    '2. 只有当用户明确要求“请发送/回发某种非文本消息”时，才输出单个 JSON 对象。',
+    '3. 输出 JSON 时禁止使用 markdown 代码块，禁止附加解释文字，只输出 JSON 本体。',
+    '4. JSON 格式必须为：{"__gateway_message__":true,"msg_type":"<type>","content":<object|string>}。',
+    '5. 企微常用 msg_type：text、markdown、image、voice、video、file。',
+    '6. 若用户只是发来图片/文件并让你分析，不算“要求回发非文本”，此时必须回复普通文本分析结果。',
+    '7. 企微非文本消息通常需要现成的 media_id；如果没有明确可用的 media_id，则不要擅自输出非文本 JSON。',
+    '',
+    '用户输入如下：',
+    userPrompt,
+  ].join('\n');
+}
+
+function buildOutboundMessageProtocolPrompt(channel: Channel, userPrompt: string): string {
+  if (channel === 'feishu') {
+    return buildFeishuOutboundMessageProtocolPrompt(userPrompt);
+  }
+  return buildWeComOutboundMessageProtocolPrompt(userPrompt);
 }
 
 function buildInboundNonTextAck(prompt: string): string | undefined {
@@ -1067,7 +1093,7 @@ ${clipMessage(text, 500)}
       });
 
       const startTime = Date.now();
-      const runtimePrompt = buildOutboundMessageProtocolPrompt(prompt);
+      const runtimePrompt = buildOutboundMessageProtocolPrompt(channel, prompt);
       const result = await deps.codexRunner.run({
         prompt: runtimePrompt,
         threadId: runtimeThreadId,

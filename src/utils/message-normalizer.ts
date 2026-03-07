@@ -33,6 +33,14 @@ function summarizeKVs(parts: Array<[string, unknown]>): string {
     .join(' ');
 }
 
+function appendMetadataBlock(content: string, lines: string[]): string {
+  const normalized = lines.map((line) => line.trim()).filter(Boolean);
+  if (!normalized.length) {
+    return content;
+  }
+  return `${content}\n[飞书消息元数据]\n${normalized.join('\n')}`;
+}
+
 function parseFeishuPostContent(raw: JsonObject): string {
   const locales = Object.values(raw).map(asObject).filter((item): item is JsonObject => !!item);
   if (!locales.length) {
@@ -104,8 +112,62 @@ function parseFeishuInteractiveCard(raw: JsonObject): string {
     headerTitle?.content,
     raw.title,
   ]);
+  const kv = summarizeKVs([
+    ['template_id', raw.template_id],
+    ['callback_id', raw.callback_id],
+  ]);
   const plain = title || '收到互动卡片';
-  return `[飞书卡片] ${plain}`;
+  return appendMetadataBlock(
+    `[飞书卡片] ${plain}`,
+    [
+      'feishu_message_type=interactive',
+      raw.template_id ? `feishu_template_id=${asString(raw.template_id)}` : '',
+      raw.callback_id ? `feishu_callback_id=${asString(raw.callback_id)}` : '',
+      kv ? `feishu_summary=${kv.replace(/\s+/g, ';')}` : '',
+    ],
+  );
+}
+
+function parseFeishuShareChat(raw: JsonObject): string {
+  const kv = summarizeKVs([
+    ['chat_id', raw.chat_id],
+    ['chat_name', raw.chat_name],
+  ]);
+  if (!kv) {
+    return '';
+  }
+  return appendMetadataBlock(
+    `[飞书分享群名片] ${kv}`,
+    [
+      'feishu_message_type=share_chat',
+      raw.chat_id ? `feishu_chat_id=${asString(raw.chat_id)}` : '',
+      raw.chat_name ? `feishu_chat_name=${asString(raw.chat_name)}` : '',
+    ],
+  );
+}
+
+function parseFeishuShareUser(raw: JsonObject): string {
+  const kv = summarizeKVs([
+    ['user_id', raw.user_id],
+    ['open_id', raw.open_id],
+    ['name', raw.name],
+    ['display_name', raw.display_name],
+    ['tenant_key', raw.tenant_key],
+  ]);
+  if (!kv) {
+    return '';
+  }
+  return appendMetadataBlock(
+    `[飞书分享个人名片] ${kv}`,
+    [
+      'feishu_message_type=share_user',
+      raw.user_id ? `feishu_user_id=${asString(raw.user_id)}` : '',
+      raw.open_id ? `feishu_open_id=${asString(raw.open_id)}` : '',
+      raw.name ? `feishu_name=${asString(raw.name)}` : '',
+      raw.display_name ? `feishu_display_name=${asString(raw.display_name)}` : '',
+      raw.tenant_key ? `feishu_tenant_key=${asString(raw.tenant_key)}` : '',
+    ],
+  );
 }
 
 export function normalizeFeishuIncomingMessage(messageType: string, rawContent: string): string {
@@ -137,6 +199,7 @@ export function normalizeFeishuIncomingMessage(messageType: string, rawContent: 
     const kv = summarizeKVs([
       ['file_key', obj.file_key],
       ['file_name', obj.file_name],
+      ['file_size', obj.file_size],
     ]);
     return kv ? `[飞书文件] ${kv}` : '';
   }
@@ -144,6 +207,9 @@ export function normalizeFeishuIncomingMessage(messageType: string, rawContent: 
     const kv = summarizeKVs([
       ['file_key', obj.file_key],
       ['duration', obj.duration],
+      ['file_name', obj.file_name],
+      ['mime_type', obj.mime_type],
+      ['file_size', obj.file_size],
     ]);
     return kv ? `[飞书语音] ${kv}` : '';
   }
@@ -152,31 +218,33 @@ export function normalizeFeishuIncomingMessage(messageType: string, rawContent: 
       ['file_key', obj.file_key],
       ['image_key', obj.image_key],
       ['file_name', obj.file_name],
+      ['duration', obj.duration],
+      ['file_size', obj.file_size],
+      ['mime_type', obj.mime_type],
     ]);
     return kv ? `[飞书媒体] ${kv}` : '';
   }
   if (type === 'sticker') {
-    const kv = summarizeKVs([['file_key', obj.file_key]]);
+    const kv = summarizeKVs([
+      ['file_key', obj.file_key],
+      ['file_name', obj.file_name],
+    ]);
     return kv ? `[飞书表情] ${kv}` : '';
   }
   if (type === 'post') {
     const content = parseFeishuPostContent(obj);
-    return content ? `[飞书富文本]\n${content}` : '';
+    return content
+      ? appendMetadataBlock(`[飞书富文本]\n${content}`, ['feishu_message_type=post'])
+      : '';
   }
   if (type === 'interactive') {
     return parseFeishuInteractiveCard(obj);
   }
   if (type === 'share_chat') {
-    const kv = summarizeKVs([
-      ['chat_id', obj.chat_id],
-    ]);
-    return kv ? `[飞书分享群名片] ${kv}` : '';
+    return parseFeishuShareChat(obj);
   }
   if (type === 'share_user') {
-    const kv = summarizeKVs([
-      ['user_id', obj.user_id],
-    ]);
-    return kv ? `[飞书分享个人名片] ${kv}` : '';
+    return parseFeishuShareUser(obj);
   }
 
   const fallback = summarizeKVs([
