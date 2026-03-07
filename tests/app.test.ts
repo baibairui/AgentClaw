@@ -12,6 +12,7 @@ afterAll(() => {
 
 async function startTestServer(options?: {
   feishuVerificationToken?: string;
+  feishuLongConnection?: boolean;
   handleText?: (input: {
     channel: 'wecom' | 'feishu';
     userId: string;
@@ -27,6 +28,7 @@ async function startTestServer(options?: {
     } as never,
     allowFrom: '*',
     feishuVerificationToken: options?.feishuVerificationToken,
+    feishuLongConnection: options?.feishuLongConnection,
     isDuplicateMessage: () => false,
     handleText: options?.handleText ?? (async () => undefined),
   });
@@ -74,6 +76,21 @@ describe('createApp wecom toggle', () => {
 });
 
 describe('createApp feishu callback', () => {
+  it('does not expose webhook endpoint when long connection mode is enabled', async () => {
+    const baseUrl = await startTestServer({
+      feishuLongConnection: true,
+      feishuVerificationToken: 'expected-token',
+    });
+
+    const response = await fetch(`${baseUrl}/feishu/callback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(404);
+  });
+
   it('rejects url_verification when token mismatch', async () => {
     const baseUrl = await startTestServer({ feishuVerificationToken: 'expected-token' });
 

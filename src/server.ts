@@ -245,6 +245,7 @@ const app = createApp({
   wecomCrypto,
   allowFrom: config.allowFrom,
   feishuVerificationToken: config.feishuVerificationToken,
+  feishuLongConnection: config.feishuLongConnection,
   isDuplicateMessage: (msgId) => dedupStore.isDuplicate(msgId),
   handleText: appDepsHandleText,
 });

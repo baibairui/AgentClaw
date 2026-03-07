@@ -13,6 +13,7 @@ interface AppDeps {
   wecomCrypto?: WeComCrypto;
   allowFrom: string;
   feishuVerificationToken?: string;
+  feishuLongConnection?: boolean;
   isDuplicateMessage: (msgId?: string) => boolean;
   /**
    * 处理文本消息，业务回复统一走主动发消息 API，无需返回值。
@@ -92,7 +93,10 @@ export function createApp(deps: AppDeps) {
     app.use('/wecom/callback', express.text({ type: '*/*' }));
   }
   // Feishu 事件回调为 JSON
-  app.use('/feishu/callback', express.json({ type: '*/*' }));
+  const feishuWebhookEnabled = !deps.feishuLongConnection;
+  if (feishuWebhookEnabled) {
+    app.use('/feishu/callback', express.json({ type: '*/*' }));
+  }
 
   // ============ 请求日志中间件 ============
   app.use((req, _res, next) => {
@@ -287,45 +291,47 @@ export function createApp(deps: AppDeps) {
     });
   }
 
-  app.post('/feishu/callback', (req, res) => {
-    try {
-      const body = (req.body ?? {}) as Record<string, unknown>;
-      const bodyType = typeof body.type === 'string' ? body.type : '';
-      const header = (body.header ?? {}) as Record<string, unknown>;
-      const token = typeof header.token === 'string'
-        ? header.token
-        : (typeof body.token === 'string' ? body.token : '');
+  if (feishuWebhookEnabled) {
+    app.post('/feishu/callback', (req, res) => {
+      try {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const bodyType = typeof body.type === 'string' ? body.type : '';
+        const header = (body.header ?? {}) as Record<string, unknown>;
+        const token = typeof header.token === 'string'
+          ? header.token
+          : (typeof body.token === 'string' ? body.token : '');
 
-      // 对所有事件类型统一做 token 校验，避免 url_verification 绕过校验。
-      if (deps.feishuVerificationToken && token !== deps.feishuVerificationToken) {
-        res.status(403).json({ code: 403, msg: 'token mismatch' });
-        return;
+        // 对所有事件类型统一做 token 校验，避免 url_verification 绕过校验。
+        if (deps.feishuVerificationToken && token !== deps.feishuVerificationToken) {
+          res.status(403).json({ code: 403, msg: 'token mismatch' });
+          return;
+        }
+
+        if (bodyType === 'url_verification') {
+          const challenge = typeof body.challenge === 'string' ? body.challenge : '';
+          res.json({ challenge });
+          return;
+        }
+
+        const eventType = typeof header.event_type === 'string' ? header.event_type : '';
+        if (eventType !== 'im.message.receive_v1') {
+          res.json({ code: 0, msg: 'ignored' });
+          return;
+        }
+
+        const event = (body.event ?? {}) as Record<string, unknown>;
+        const result = dispatchFeishuMessageReceiveEvent({
+          allowFrom: deps.allowFrom,
+          isDuplicateMessage: deps.isDuplicateMessage,
+          handleText: deps.handleText,
+        }, event);
+        res.json({ code: 0, msg: result });
+      } catch (error) {
+        log.error('POST /feishu/callback 回调处理异常', error);
+        res.json({ code: 0, msg: 'success' });
       }
-
-      if (bodyType === 'url_verification') {
-        const challenge = typeof body.challenge === 'string' ? body.challenge : '';
-        res.json({ challenge });
-        return;
-      }
-
-      const eventType = typeof header.event_type === 'string' ? header.event_type : '';
-      if (eventType !== 'im.message.receive_v1') {
-        res.json({ code: 0, msg: 'ignored' });
-        return;
-      }
-
-      const event = (body.event ?? {}) as Record<string, unknown>;
-      const result = dispatchFeishuMessageReceiveEvent({
-        allowFrom: deps.allowFrom,
-        isDuplicateMessage: deps.isDuplicateMessage,
-        handleText: deps.handleText,
-      }, event);
-      res.json({ code: 0, msg: result });
-    } catch (error) {
-      log.error('POST /feishu/callback 回调处理异常', error);
-      res.json({ code: 0, msg: 'success' });
-    }
-  });
+    });
+  }
 
   return app;
 }
