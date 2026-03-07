@@ -4,12 +4,12 @@ import { EventDispatcher as LarkEventDispatcher, LoggerLevel as LarkSdkLoggerLev
 
 import { createApp, dispatchFeishuMessageReceiveEvent } from './app.js';
 import { config } from './config.js';
-import { BrowserOpener } from './services/browser-opener.js';
 import { WorkspacePublisher } from './services/workspace-publisher.js';
 import { AgentWorkspaceManager } from './services/agent-workspace-manager.js';
+import { BrowserManager } from './services/browser-manager.js';
+import { resolveBrowserMcpRuntime, startBrowserMcpServer } from './services/browser-mcp-server.js';
 import { CodexRunner } from './services/codex-runner.js';
 import { createChatHandler } from './services/chat-handler.js';
-import { resolvePlaywrightMcpRuntime, startPlaywrightMcpServer } from './services/playwright-mcp-server.js';
 import { MemorySteward } from './services/memory-steward.js';
 import { ReminderStore } from './services/reminder-store.js';
 import { ReminderDispatcher } from './services/reminder-dispatcher.js';
@@ -36,11 +36,10 @@ log.info('服务启动初始化...', {
   commandTimeoutMinMs: config.commandTimeoutMinMs,
   commandTimeoutMaxMs: config.commandTimeoutMaxMs,
   commandTimeoutPerCharMs: config.commandTimeoutPerCharMs,
-  playwrightMcpEnabled: config.playwrightMcpEnabled,
-  playwrightMcpUrl: config.playwrightMcpUrl ?? '(local auto)',
-  playwrightMcpPort: config.playwrightMcpPort,
-  playwrightMcpProfileDir: config.playwrightMcpProfileDir ?? '(default)',
-  playwrightMcpOutputDir: config.playwrightMcpOutputDir ?? '(default)',
+  browserMcpEnabled: config.browserMcpEnabled,
+  browserMcpUrl: config.browserMcpUrl ?? '(local auto)',
+  browserMcpPort: config.browserMcpPort,
+  browserProfileDir: config.browserMcpProfileDir ?? '(default)',
   runnerEnabled: config.runnerEnabled,
   memoryStewardEnabled: config.memoryStewardEnabled,
   memoryStewardIntervalHours: config.memoryStewardIntervalHours,
@@ -59,15 +58,15 @@ log.info('服务启动初始化...', {
 const dataDir = path.resolve(process.cwd(), '.data');
 fs.mkdirSync(dataDir, { recursive: true });
 log.debug('数据目录已就绪', { dataDir });
-const playwrightDataDir = path.join(dataDir, 'playwright');
-const playwrightMcpRuntime = resolvePlaywrightMcpRuntime({
-  enabled: config.playwrightMcpEnabled,
-  url: config.playwrightMcpUrl,
-  port: config.playwrightMcpPort,
-  profileDir: resolveRuntimeDir(config.playwrightMcpProfileDir, path.join(playwrightDataDir, 'profile')),
-  outputDir: resolveRuntimeDir(config.playwrightMcpOutputDir, path.join(playwrightDataDir, 'artifacts')),
+const browserManager = new BrowserManager({
+  profileDir: resolveRuntimeDir(config.browserMcpProfileDir, path.join(dataDir, 'browser', 'profile')),
 });
-const activePlaywrightMcpUrl = await ensurePlaywrightMcpUrl(playwrightMcpRuntime);
+const browserMcpRuntime = resolveBrowserMcpRuntime({
+  enabled: config.browserMcpEnabled,
+  url: config.browserMcpUrl,
+  port: config.browserMcpPort,
+});
+const activeBrowserMcpUrl = await ensureBrowserMcpUrl(browserMcpRuntime, browserManager);
 const feishuImageCacheDir = path.join(dataDir, 'feishu-images');
 fs.mkdirSync(feishuImageCacheDir, { recursive: true });
 
@@ -100,19 +99,10 @@ const codexRunner = new CodexRunner({
   timeoutMinMs: config.commandTimeoutMinMs,
   timeoutMaxMs: config.commandTimeoutMaxMs,
   timeoutPerCharMs: config.commandTimeoutPerCharMs,
-  playwrightMcpUrl: activePlaywrightMcpUrl,
+  browserMcpUrl: activeBrowserMcpUrl,
   sandbox: config.codexSandbox,
 });
 log.debug('CodexRunner 已初始化');
-
-const browserOpener = config.browserOpenEnabled
-  ? new BrowserOpener({ command: config.browserOpenCommand })
-  : undefined;
-if (browserOpener) {
-  log.debug('BrowserOpener 已初始化', {
-    browserOpenCommand: config.browserOpenCommand ?? '(platform default)',
-  });
-}
 
 const workspacePublisher = new WorkspacePublisher({
   cwd: '/opt/gateway',
@@ -226,24 +216,23 @@ function resolveRuntimeDir(configuredDir: string | undefined, fallbackDir: strin
   return path.resolve(configuredDir);
 }
 
-async function ensurePlaywrightMcpUrl(
-  runtime: ReturnType<typeof resolvePlaywrightMcpRuntime>,
+async function ensureBrowserMcpUrl(
+  runtime: ReturnType<typeof resolveBrowserMcpRuntime>,
+  manager: BrowserManager,
 ): Promise<string | undefined> {
   if (!runtime) {
     return undefined;
   }
 
   try {
-    await startPlaywrightMcpServer(runtime);
-    log.debug('Playwright MCP 运行时已启用', {
+    await startBrowserMcpServer(runtime, manager);
+    log.debug('Browser MCP 运行时已启用', {
       url: runtime.url,
       shouldAutoStart: runtime.shouldAutoStart,
-      profileDir: runtime.profileDir,
-      outputDir: runtime.outputDir,
     });
     return runtime.url;
   } catch (error) {
-    log.warn('Playwright MCP 启动失败，当前将以无浏览器工具模式运行', {
+    log.warn('Browser MCP 启动失败，当前将以无浏览器工具模式运行', {
       url: runtime.url,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -290,9 +279,7 @@ const handleChatText = createChatHandler({
   rateLimitStore,
   codexRunner,
   agentWorkspaceManager,
-  browserOpener,
   workspacePublisher,
-  browserOpenEnabled: config.browserOpenEnabled,
   runnerEnabled: config.runnerEnabled,
   defaultModel: config.codexModel,
   defaultSearch: config.codexSearch,

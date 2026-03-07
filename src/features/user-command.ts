@@ -28,7 +28,6 @@ export interface UserCommandResult {
   reviewMode?: 'uncommitted' | 'base' | 'commit';
   reviewTarget?: string;
   reviewPrompt?: string;
-  openUrl?: string;
   publishWorkspace?: boolean;
   queryAgent?: boolean;
   queryAgents?: boolean;
@@ -124,7 +123,6 @@ export function handleUserCommand(content: string, context: UserCommandContext =
           '/skills disable agent <skillName> - 禁用某个当前 agent skill',
           '/search - 查看联网搜索状态',
           '/search on|off - 开启/关闭联网搜索',
-          '/open <URL> - 在宿主机打开浏览器',
           '/review - 审查当前 agent 工作区变更',
           '/review base <分支> - 审查相对分支的变更',
           '/review commit <SHA> - 审查指定提交',
@@ -348,19 +346,6 @@ export function handleUserCommand(content: string, context: UserCommandContext =
       return {
         handled: true,
         message: '用法：/search on|off',
-      };
-    }
-    case '/open': {
-      const url = parts[1] ?? '';
-      if (!url) {
-        return {
-          handled: true,
-          message: '用法：/open <URL>',
-        };
-      }
-      return {
-        handled: true,
-        openUrl: url,
       };
     }
     case '/deploy-workspace':

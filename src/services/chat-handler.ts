@@ -64,10 +64,6 @@ interface CodexRunnerLike {
   }): Promise<void>;
 }
 
-interface BrowserOpenerLike {
-  open(url: string): Promise<void>;
-}
-
 interface WorkspacePublisherLike {
   publish(): Promise<{ output: string }>;
 }
@@ -94,9 +90,7 @@ interface ChatHandlerDeps {
   rateLimitStore: RateLimitStoreLike;
   codexRunner: CodexRunnerLike;
   agentWorkspaceManager: AgentWorkspaceManagerLike;
-  browserOpener?: BrowserOpenerLike;
   workspacePublisher?: WorkspacePublisherLike;
-  browserOpenEnabled: boolean;
   runnerEnabled: boolean;
   defaultModel?: string;
   defaultSearch: boolean;
@@ -915,25 +909,6 @@ ${clipMessage(text, 500)}
       if (typeof commandResult.setSearchEnabled === 'boolean') {
         userSearchOverrides.set(sessionUserKey, commandResult.setSearchEnabled);
         await deps.sendText(channel, userId, `✅ 已${commandResult.setSearchEnabled ? '开启' : '关闭'}联网搜索`);
-        return;
-      }
-      if (commandResult.openUrl) {
-        if (!deps.browserOpenEnabled || !deps.browserOpener) {
-          await deps.sendText(channel, userId, '⚠️ 当前服务未开启浏览器打开能力，请联系管理员。');
-          return;
-        }
-        try {
-          await deps.browserOpener.open(commandResult.openUrl);
-          await deps.sendText(channel, userId, `✅ 已尝试打开浏览器：${commandResult.openUrl}`);
-        } catch (error) {
-          log.error('handleText /open 执行失败', {
-            userId,
-            url: commandResult.openUrl,
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-          });
-          await deps.sendText(channel, userId, '❌ 打开浏览器失败，请检查 URL 或宿主机图形环境。');
-        }
         return;
       }
       if (commandResult.publishWorkspace) {
