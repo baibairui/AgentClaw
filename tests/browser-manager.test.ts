@@ -17,6 +17,7 @@ class FakeKeyboard {
 class FakePage implements BrowserPageLike {
   public currentUrl = 'about:blank';
   public readonly keyboard = new FakeKeyboard();
+  public waitedMs?: number;
 
   constructor(url = 'about:blank') {
     this.currentUrl = url;
@@ -42,7 +43,9 @@ class FakePage implements BrowserPageLike {
     return new FakeLocator();
   }
 
-  async waitForTimeout(): Promise<void> {}
+  async waitForTimeout(ms: number): Promise<void> {
+    this.waitedMs = ms;
+  }
 
   async waitForSelector(): Promise<void> {}
 
@@ -115,5 +118,16 @@ describe('BrowserManager', () => {
 
     await manager.closeCurrentTab();
     expect(await manager.currentUrl()).toBe('https://example.com/1');
+  });
+
+  it('treats large browser_wait_for time values as milliseconds', async () => {
+    const page = new FakePage('https://example.com');
+    const manager = new BrowserManager({
+      launcher: async () => new FakeContext([page]),
+    });
+
+    await manager.waitFor({ time: 1500 });
+
+    expect(page.waitedMs).toBe(1500);
   });
 });
