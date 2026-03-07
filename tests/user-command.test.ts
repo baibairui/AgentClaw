@@ -47,10 +47,19 @@ describe('handleUserCommand', () => {
     const result = handleUserCommand('/help', context);
     expect(result.handled).toBe(true);
     expect(result.message).toContain('可用命令');
+    expect(result.message).toContain('帮助页 1/3');
     expect(result.message).toContain('/agent create [名称]');
     expect(result.message).toContain('/skill-agent');
-    expect(result.message).toContain('/skills');
+    expect(result.message).toContain('翻页：/help 1 | /help 2');
     expect(result.message).not.toContain('/agent init-memory');
+  });
+
+  it('supports /help pagination', () => {
+    const result = handleUserCommand('/help 2', context);
+    expect(result.handled).toBe(true);
+    expect(result.message).toContain('帮助页 2/3');
+    expect(result.message).toContain('/skills');
+    expect(result.message).toContain('翻页：/help 1 | /help 3');
   });
 
   it('supports /clear', () => {

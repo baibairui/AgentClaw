@@ -85,6 +85,67 @@ function formatAgents(currentAgent: AgentRecord | undefined, agents: AgentListIt
   return ['Agent 列表：', ...lines, '使用 /agent use <编号|agentId> 切换 agent。'].join('\n');
 }
 
+const HELP_PAGES: Array<{ title: string; lines: string[] }> = [
+  {
+    title: '会话与 Agent',
+    lines: [
+      '/help - 查看帮助',
+      '/new - 清空当前 agent 的当前会话',
+      '/clear - 清空当前 agent 的当前会话',
+      '/session - 查看当前会话状态',
+      '/sessions - 查看当前 agent 的历史会话列表',
+      '/rename [编号|threadId] [名称] - 重命名会话',
+      '/switch [编号|threadId] - 切换会话',
+      '/agents - 查看 agent 列表',
+      '/agent - 查看当前 agent',
+      '/agent create [名称] - 创建独立 agent 工作区',
+      '/agent use [编号|agentId] - 切换 agent',
+      '/skill-agent - 启动技能扩展助手 agent',
+    ],
+  },
+  {
+    title: '模型与技能',
+    lines: [
+      '/model - 查看当前模型',
+      '/model [模型名] - 切换模型',
+      '/model reset - 重置为默认模型',
+      '/models - 查看当前 Codex 支持的模型',
+      '/skills - 查看当前会话生效 skill 列表（全局 + 当前 agent）',
+      '/skills global - 查看全局 skill',
+      '/skills agent - 查看当前 agent skill',
+      '/skills disable global [skillName] - 禁用某个全局 skill（仅当前 agent）',
+      '/skills add global [skillName] - 重新启用某个全局 skill（仅当前 agent）',
+      '/skills disable agent [skillName] - 禁用某个当前 agent skill',
+    ],
+  },
+  {
+    title: '执行控制',
+    lines: [
+      '/search - 查看联网搜索状态',
+      '/search on|off - 开启/关闭联网搜索',
+      '/review - 审查当前 agent 工作区变更',
+      '/review base [分支] - 审查相对分支的变更',
+      '/review commit [SHA] - 审查指定提交',
+      '/login - 使用设备码登录 Codex',
+      '提醒任务请直接用自然语言描述，由已安装的 reminder-tool skill 调用提醒工具执行。',
+    ],
+  },
+];
+
+function renderHelpMessage(page: number): string {
+  const total = HELP_PAGES.length;
+  const safePage = Math.max(1, Math.min(page, total));
+  const current = HELP_PAGES[safePage - 1] ?? HELP_PAGES[0];
+  return [
+    `可用命令（按功能分组，帮助页 ${safePage}/${total}）：`,
+    '',
+    `【${current.title}】`,
+    ...current.lines,
+    '',
+    `翻页：/help ${Math.max(1, safePage - 1)} | /help ${Math.min(total, safePage + 1)}`,
+  ].join('\n');
+}
+
 export function handleUserCommand(content: string, context: UserCommandContext = {}): UserCommandResult {
   const raw = content.trim();
   if (!raw.startsWith('/')) {
@@ -95,49 +156,14 @@ export function handleUserCommand(content: string, context: UserCommandContext =
   const cmd = (parts[0] ?? '').toLowerCase();
   switch (cmd) {
     case '/help':
-      return {
-        handled: true,
-        message: [
-          '可用命令（按功能分组）：',
-          '',
-          '【会话】',
-          '/help - 查看帮助',
-          '/new - 清空当前 agent 的当前会话',
-          '/clear - 清空当前 agent 的当前会话',
-          '/session - 查看当前会话状态',
-          '/sessions - 查看当前 agent 的历史会话列表',
-          '/rename [编号|threadId] [名称] - 重命名会话',
-          '/switch [编号|threadId] - 切换会话',
-          '',
-          '【Agent】',
-          '/agents - 查看 agent 列表',
-          '/agent - 查看当前 agent',
-          '/agent create [名称] - 创建独立 agent 工作区',
-          '/agent use [编号|agentId] - 切换 agent',
-          '/skill-agent - 启动技能扩展助手 agent',
-          '',
-          '【模型与技能】',
-          '/model - 查看当前模型',
-          '/model [模型名] - 切换模型',
-          '/model reset - 重置为默认模型',
-          '/models - 查看当前 Codex 支持的模型',
-          '/skills - 查看当前会话生效 skill 列表（全局 + 当前 agent）',
-          '/skills global - 查看全局 skill',
-          '/skills agent - 查看当前 agent skill',
-          '/skills disable global [skillName] - 禁用某个全局 skill（仅当前 agent）',
-          '/skills add global [skillName] - 重新启用某个全局 skill（仅当前 agent）',
-          '/skills disable agent [skillName] - 禁用某个当前 agent skill',
-          '',
-          '【执行控制】',
-          '/search - 查看联网搜索状态',
-          '/search on|off - 开启/关闭联网搜索',
-          '/review - 审查当前 agent 工作区变更',
-          '/review base [分支] - 审查相对分支的变更',
-          '/review commit [SHA] - 审查指定提交',
-          '/login - 使用设备码登录 Codex',
-          '提醒任务请直接用自然语言描述，由已安装的 reminder-tool skill 调用提醒工具执行。',
-        ].join('\n'),
-      };
+      {
+        const rawPage = Number(parts[1] ?? '1');
+        const page = Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1;
+        return {
+          handled: true,
+          message: renderHelpMessage(page),
+        };
+      }
     case '/new':
     case '/clear':
       return {
