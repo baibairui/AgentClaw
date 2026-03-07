@@ -207,6 +207,7 @@ codexclaw check
 - `codexclaw start`：生产模式启动（启动前自动配置检查）
 - `codexclaw setup`：逐行交互配置向导，自动写入 `.env`
 - `codexclaw check`：仅检查配置，不启动服务
+- `codexclaw update`：一键拉取远端最新代码并完成依赖更新与构建
 - `codexclaw build`：构建 TypeScript
 - `codexclaw test`：执行测试
 - `codexclaw help`：查看帮助
