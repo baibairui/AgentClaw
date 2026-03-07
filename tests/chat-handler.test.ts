@@ -109,6 +109,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -136,6 +137,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -169,6 +171,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -205,6 +208,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -247,6 +251,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -282,6 +287,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -318,6 +324,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -327,69 +334,6 @@ describe('createChatHandler', () => {
       workdir: '/tmp/frontend',
     }));
     expect(sessionStore.getSession('wecom:u1', 'frontend')).toBe('thread_new');
-  });
-
-  it('creates reminder task from assistant reminder-action block', async () => {
-    const sendText = vi.fn(async () => undefined);
-    const run = vi.fn(async (input: {
-      onMessage?: (text: string) => void;
-    }) => {
-      input.onMessage?.([
-        '好的，我来帮你设置提醒。',
-        '```reminder-action',
-        '{"delay":"5min","message":"喝水"}',
-        '```',
-      ].join('\n'));
-      return { threadId: 'thread_new', rawOutput: '' };
-    });
-    const schedule = vi.fn((input: { channel: 'wecom' | 'feishu'; userId: string; delayMs: number; message: string }, _onTrigger: (task: {
-      id: string;
-      channel: 'wecom' | 'feishu';
-      userId: string;
-      message: string;
-      createdAt: number;
-      dueAt: number;
-    }) => Promise<void> | void) => ({
-      id: 'task_1',
-      channel: input.channel,
-      userId: input.userId,
-      message: input.message,
-      createdAt: 10,
-      dueAt: 10 + input.delayMs,
-    }));
-    const sessionStore = createSessionStore();
-    const handler = createChatHandler({
-      sessionStore,
-      rateLimitStore: { allow: () => true },
-      codexRunner: {
-        run,
-        review: async () => ({ rawOutput: '' }),
-      },
-      reminderScheduler: { schedule },
-      agentWorkspaceManager: {
-        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
-        isSharedMemoryEmpty: () => false,
-      },
-      browserOpenEnabled: false,
-      runnerEnabled: true,
-      defaultSearch: false,
-      sendText,
-    });
-
-    await handler({ channel: 'wecom', userId: 'u1', content: '5分钟后提醒我喝水' });
-
-    expect(schedule).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'wecom',
-        userId: 'u1',
-        delayMs: 5 * 60 * 1000,
-        message: '喝水',
-      }),
-      expect.any(Function),
-    );
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('好的，我来帮你设置提醒。'));
-    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('已创建提醒'));
   });
 
   it('opens browser for /open when enabled', async () => {
@@ -411,6 +355,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: true,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -439,6 +384,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -468,6 +414,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -509,6 +456,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -545,6 +493,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 
@@ -584,6 +533,7 @@ describe('createChatHandler', () => {
       browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
       sendText,
     });
 

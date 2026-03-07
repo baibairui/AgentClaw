@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('CodexRunner');
@@ -9,6 +10,12 @@ export interface CodexRunInput {
   model?: string;
   search?: boolean;
   workdir?: string;
+  reminderToolContext?: {
+    dbPath: string;
+    channel: 'wecom' | 'feishu';
+    userId: string;
+    agentId: string;
+  };
   /** 每产出一条 agent_message 就回调一次 */
   onMessage?: (text: string) => void;
 }
@@ -376,7 +383,7 @@ export class CodexRunner {
 }
 
 export function buildCodexArgs(
-  input: Pick<CodexRunInput, 'prompt' | 'threadId' | 'model' | 'search' | 'workdir'>,
+  input: Pick<CodexRunInput, 'prompt' | 'threadId' | 'model' | 'search' | 'workdir' | 'reminderToolContext'>,
   sandbox: 'full-auto' | 'none',
 ): string[] {
   const sandboxFlag = sandbox === 'none'
@@ -396,6 +403,9 @@ export function buildCodexArgs(
   }
   if (input.search) {
     args.unshift('--search');
+  }
+  if (input.reminderToolContext) {
+    args.unshift(...buildReminderMcpConfigArgs(input.reminderToolContext));
   }
   args.push(input.prompt);
   return args;
@@ -431,6 +441,36 @@ export function buildCodexReviewArgs(
     args.push(input.prompt);
   }
   return args;
+}
+
+function buildReminderMcpConfigArgs(context: NonNullable<CodexRunInput['reminderToolContext']>): string[] {
+  const serverPath = resolveReminderMcpServerPath();
+  return [
+    '-c',
+    'mcp_servers.gateway_reminder.command="node"',
+    '-c',
+    `mcp_servers.gateway_reminder.args=${tomlStringArray([serverPath])}`,
+    '-c',
+    `mcp_servers.gateway_reminder.env.REMINDER_DB_PATH=${tomlString(context.dbPath)}`,
+    '-c',
+    `mcp_servers.gateway_reminder.env.REMINDER_CHANNEL=${tomlString(context.channel)}`,
+    '-c',
+    `mcp_servers.gateway_reminder.env.REMINDER_USER_ID=${tomlString(context.userId)}`,
+    '-c',
+    `mcp_servers.gateway_reminder.env.REMINDER_AGENT_ID=${tomlString(context.agentId)}`,
+  ];
+}
+
+function resolveReminderMcpServerPath(): string {
+  return fileURLToPath(new URL('../../bin/reminder-mcp-server.mjs', import.meta.url));
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function tomlStringArray(values: string[]): string {
+  return `[${values.map((value) => tomlString(value)).join(',')}]`;
 }
 
 function redactArgsForLog(args: string[]): string[] {

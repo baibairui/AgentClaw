@@ -114,14 +114,14 @@ export function handleUserCommand(content: string, context: UserCommandContext =
           '/models - 查看当前 Codex 支持的模型',
           '/search - 查看联网搜索状态',
           '/search on|off - 开启/关闭联网搜索',
-          '/remind - 已废弃，请直接描述提醒需求，交由 agent skill 处理',
+          '/remind - 已废弃，请直接描述提醒需求，交由 agent 调用提醒工具处理',
           '/open <URL> - 在宿主机打开浏览器',
           '/deploy-workspace - 发布当前 workspace 到网关运行目录',
           '/review - 审查当前 agent 工作区变更',
           '/review base <分支> - 审查相对分支的变更',
           '/review commit <SHA> - 审查指定提交',
           '/login - 使用设备码登录 Codex',
-          '提醒任务请直接用自然语言描述，由已安装的 reminder skill 执行。',
+          '提醒任务请直接用自然语言描述，由已安装的 reminder-tool skill 调用提醒工具执行。',
         ].join('\n'),
       };
     case '/new':
@@ -298,7 +298,7 @@ export function handleUserCommand(content: string, context: UserCommandContext =
     case '/reminder':
       return {
         handled: true,
-        message: '该命令已废弃。请直接描述提醒需求（例如“1小时后提醒我开会”），由 agent skill 自动执行。',
+        message: '该命令已废弃。请直接描述提醒需求（例如“1小时后提醒我开会”），由 agent 调用提醒工具自动执行。',
       };
     case '/open': {
       const url = parts[1] ?? '';

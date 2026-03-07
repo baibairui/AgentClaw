@@ -79,6 +79,29 @@ describe('buildCodexArgs', () => {
       'hello',
     ]);
   });
+
+  it('injects reminder MCP server config when reminder tool context is provided', () => {
+    const args = buildCodexArgs(
+      {
+        prompt: 'remind me later',
+        workdir: '/tmp/agent-d',
+        reminderToolContext: {
+          dbPath: '/tmp/reminders.db',
+          channel: 'wecom',
+          userId: 'u1',
+          agentId: 'assistant',
+        },
+      },
+      'full-auto',
+    );
+
+    expect(args).toContain('-c');
+    expect(args).toContain('mcp_servers.gateway_reminder.command="node"');
+    expect(args).toContain('mcp_servers.gateway_reminder.env.REMINDER_DB_PATH="/tmp/reminders.db"');
+    expect(args).toContain('mcp_servers.gateway_reminder.env.REMINDER_CHANNEL="wecom"');
+    expect(args).toContain('mcp_servers.gateway_reminder.env.REMINDER_USER_ID="u1"');
+    expect(args).toContain('mcp_servers.gateway_reminder.env.REMINDER_AGENT_ID="assistant"');
+  });
 });
 
 describe('buildCodexReviewArgs', () => {

@@ -1,8 +1,6 @@
 import { commandNeedsAgentList, commandNeedsDetailedSessions, handleUserCommand, maskThreadId } from '../features/user-command.js';
 import type { AgentListItem, AgentRecord, SessionListItem } from '../stores/session-store.js';
 import { formatCodexModelsText, loadCodexModels, resolveModelFromSnapshot } from './codex-models.js';
-import { ReminderScheduler, type ReminderTask, type ScheduleReminderInput } from './reminder-scheduler.js';
-import { extractReminderActionsFromAssistantText } from './reminder-action-parser.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('ChatHandler');
@@ -34,6 +32,12 @@ interface CodexRunnerLike {
     model?: string;
     search?: boolean;
     workdir?: string;
+    reminderToolContext?: {
+      dbPath: string;
+      channel: Channel;
+      userId: string;
+      agentId: string;
+    };
     onMessage?: (text: string) => void;
   }): Promise<{ threadId: string; rawOutput: string }>;
   review(input: {
@@ -79,10 +83,8 @@ interface ChatHandlerDeps {
   runnerEnabled: boolean;
   defaultModel?: string;
   defaultSearch: boolean;
+  reminderDbPath: string;
   sendText: (channel: Channel, userId: string, content: string) => Promise<void>;
-  reminderScheduler?: {
-    schedule(input: ScheduleReminderInput, onTrigger: (task: ReminderTask) => Promise<void> | void): ReminderTask;
-  };
 }
 
 function clipMessage(message: string, maxLength = 1500): string {
@@ -90,23 +92,6 @@ function clipMessage(message: string, maxLength = 1500): string {
     return message;
   }
   return `${message.slice(0, maxLength)}\n...(截断)`;
-}
-
-function formatDelay(delayMs: number): string {
-  const totalSeconds = Math.floor(delayMs / 1000);
-  if (totalSeconds < 60) {
-    return `${totalSeconds} 秒`;
-  }
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  if (totalMinutes < 60) {
-    return `${totalMinutes} 分钟`;
-  }
-  const totalHours = Math.floor(totalMinutes / 60);
-  const remainMinutes = totalMinutes % 60;
-  if (remainMinutes === 0) {
-    return `${totalHours} 小时`;
-  }
-  return `${totalHours} 小时 ${remainMinutes} 分钟`;
 }
 
 const MEMORY_ONBOARDING_AGENT_ID = 'memory-onboarding';
@@ -187,7 +172,6 @@ export function createChatHandler(deps: ChatHandlerDeps) {
   const userModelOverrides = new Map<string, string>();
   const userSearchOverrides = new Map<string, boolean>();
   const onboardingKickoffInFlight = new Set<string>();
-  const reminderScheduler = deps.reminderScheduler ?? new ReminderScheduler();
 
   return async function handleText(input: { channel: Channel; userId: string; content: string }): Promise<void> {
     const { channel, userId, content } = input;
@@ -246,6 +230,12 @@ ${clipMessage(prompt, 500)}
           model,
           search: false,
           workdir: onboardingAgent.workspaceDir,
+          reminderToolContext: {
+            channel,
+            userId,
+            agentId: onboardingAgent.agentId,
+            dbPath: deps.reminderDbPath,
+          },
           onMessage: (text) => {
             const sanitized = sanitizeOnboardingText(text);
             lastStreamSend = deps.sendText(channel, userId, sanitized).catch((err) => {
@@ -414,6 +404,12 @@ ${clipMessage(prompt, 500)}
             model: currentModel,
             search: false,
             workdir: agent.workspaceDir,
+            reminderToolContext: {
+              channel,
+              userId,
+              agentId: agent.agentId,
+              dbPath: deps.reminderDbPath,
+            },
             onMessage: (text) => {
               const sanitized = sanitizeOnboardingText(text);
               lastStreamSend = deps.sendText(channel, userId, sanitized).catch((err) => {
@@ -695,34 +691,14 @@ ${clipMessage(text, 500)}
         model: currentModel,
         search: runtimeSearch,
         workdir: runtimeAgent.workspaceDir,
+        reminderToolContext: {
+          channel,
+          userId,
+          agentId: runtimeAgent.agentId,
+          dbPath: deps.reminderDbPath,
+        },
         onMessage: (text) => {
-          const output = isSystemAgentId(currentAgent.agentId) ? sanitizeOnboardingText(text) : text;
-          const reminderParsed = extractReminderActionsFromAssistantText(output);
-          for (const action of reminderParsed.actions) {
-            const task = reminderScheduler.schedule({
-              channel,
-              userId,
-              delayMs: action.delayMs,
-              message: action.message,
-            }, async (triggeredTask) => {
-              await deps.sendText(channel, userId, `⏰ 定时提醒：${triggeredTask.message}`);
-            });
-            const dueAt = new Date(task.dueAt).toLocaleString('zh-CN', { hour12: false });
-            void deps.sendText(
-              channel,
-              userId,
-              `✅ 已创建提醒：${formatDelay(action.delayMs)}后（约 ${dueAt}）我会提醒你：${action.message}\n提示：该提醒为进程内定时任务，服务重启后不会保留。`,
-            ).catch((err) => {
-              log.error('handleText reminder ack 推送失败', err);
-            });
-          }
-          for (const parseError of reminderParsed.errors) {
-            log.warn('handleText reminder action 解析失败', {
-              userId,
-              error: parseError,
-            });
-          }
-          const userVisibleOutput = reminderParsed.userText;
+          const userVisibleOutput = isSystemAgentId(currentAgent.agentId) ? sanitizeOnboardingText(text) : text;
           log.info(`
 ════════════════════════════════════════════════════════════
 🤖 Codex 回复  [${channel}:${userId}]

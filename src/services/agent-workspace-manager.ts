@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { installReminderToolSkill } from './reminder-tool-skill.js';
 
 export interface AgentWorkspaceRecord {
   agentId: string;
@@ -105,14 +106,7 @@ export class AgentWorkspaceManager {
       path.join(workspaceDir, 'browser-playbook.md'),
       renderBrowserPlaybook(),
     );
-    this.writeIfMissing(
-      path.join(workspaceDir, 'skills', 'reminder-skill', 'SKILL.md'),
-      renderReminderSkill(),
-    );
-    this.writeIfMissing(
-      path.join(workspaceDir, 'skills', 'reminder-skill', 'scripts', 'build-reminder-action.js'),
-      renderReminderSkillScript(),
-    );
+    installReminderToolSkill(workspaceDir);
 
     return {
       agentId,
@@ -295,8 +289,8 @@ function renderWorkspaceAgentsMd(
     '',
     '定时提醒职责：',
     '- 当用户提出“稍后提醒我”这类需求时，不要要求用户输入 `/remind` 命令。',
-    '- 优先使用 `./skills/reminder-skill/SKILL.md` 的规范产出 reminder-action。',
-    '- reminder-action 使用 ```reminder-action 代码块，JSON 内必须包含 `delay`/`delayMs` 与 `message`。',
+    '- 优先使用 `./skills/reminder-tool/SKILL.md`，并调用 `create_reminder` 工具创建提醒。',
+    '- 不要输出 reminder-action 文本块，也不要要求用户输入 `/remind`。',
     '',
     '开始任何任务前，先阅读这些记忆文件：',
     '- `./agent.md`',
@@ -469,74 +463,6 @@ function renderBrowserPlaybook(): string {
     '',
     '## Output Style',
     '- Keep updates short and specific: action -> observed result -> next action.',
-    '',
-  ].join('\n');
-}
-
-function renderReminderSkill(): string {
-  return [
-    '---',
-    'name: reminder-skill',
-    'description: 将自然语言提醒需求转为 reminder-action 代码块，让网关自动创建定时任务（无需用户输入 /remind）',
-    '---',
-    '',
-    '# Reminder Skill',
-    '',
-    '当用户提出“X 后提醒我做 Y”时，按以下流程执行：',
-    '1. 提取延迟时长和提醒内容（例如 `5min`、`2h`、`1d`）。',
-    '2. 用脚本生成 reminder-action 代码块。',
-    '3. 你的最终回复里保留对用户可见的说明，同时附上 reminder-action 代码块。',
-    '',
-    '执行命令：',
-    '```bash',
-    'node ./skills/reminder-skill/scripts/build-reminder-action.js --delay "5min" --message "喝水"',
-    '```',
-    '',
-    '输出格式（必须严格遵守）：',
-    '```reminder-action',
-    '{"delay":"5min","message":"喝水"}',
-    '```',
-    '',
-    '约束：',
-    '- 不要求用户手动输入 `/remind`。',
-    '- 如果时长无法解析，先追问用户更明确的时长。',
-    '- message 必须是具体可执行的短句。',
-    '',
-  ].join('\n');
-}
-
-function renderReminderSkillScript(): string {
-  return [
-    '#!/usr/bin/env node',
-    '',
-    'function parseArgs(argv) {',
-    '  const args = { delay: "", message: "" };',
-    '  for (let i = 2; i < argv.length; i += 1) {',
-    '    const item = argv[i];',
-    '    if (item === "--delay") {',
-    '      args.delay = String(argv[i + 1] ?? "");',
-    '      i += 1;',
-    '      continue;',
-    '    }',
-    '    if (item === "--message") {',
-    '      args.message = String(argv[i + 1] ?? "");',
-    '      i += 1;',
-    '      continue;',
-    '    }',
-    '  }',
-    '  return args;',
-    '}',
-    '',
-    'const { delay, message } = parseArgs(process.argv);',
-    'if (!delay || !message) {',
-    '  console.error("Usage: node build-reminder-action.js --delay \\"5min\\" --message \\"喝水\\"");',
-    '  process.exit(1);',
-    '}',
-    '',
-    'const payload = JSON.stringify({ delay, message });',
-    'process.stdout.write("```reminder-action\\n");',
-    'process.stdout.write(payload);',
-    'process.stdout.write("\\n```\\n");',
     '',
   ].join('\n');
 }

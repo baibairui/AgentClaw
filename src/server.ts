@@ -9,6 +9,9 @@ import { AgentWorkspaceManager } from './services/agent-workspace-manager.js';
 import { CodexRunner } from './services/codex-runner.js';
 import { createChatHandler } from './services/chat-handler.js';
 import { MemorySteward } from './services/memory-steward.js';
+import { ReminderStore } from './services/reminder-store.js';
+import { ReminderDispatcher } from './services/reminder-dispatcher.js';
+import { installReminderToolSkill } from './services/reminder-tool-skill.js';
 import { WeComApi } from './services/wecom-api.js';
 import { FeishuApi } from './services/feishu-api.js';
 import { WeComCrypto } from './utils/wecom-crypto.js';
@@ -50,6 +53,7 @@ log.debug('数据目录已就绪', { dataDir });
 const agentsDir = path.resolve(config.codexAgentsDir ?? path.join(dataDir, 'agents'));
 fs.mkdirSync(agentsDir, { recursive: true });
 log.debug('Agent 工作区目录已就绪', { agentsDir });
+const reminderDbPath = path.join(dataDir, 'reminders.db');
 
 const sessionStore = new SessionStore(path.join(dataDir, 'sessions.db'), {
   defaultWorkspaceDir: config.codexWorkdir,
@@ -57,6 +61,7 @@ const sessionStore = new SessionStore(path.join(dataDir, 'sessions.db'), {
 log.debug('SessionStore 已初始化');
 const agentWorkspaceManager = new AgentWorkspaceManager(agentsDir);
 log.debug('AgentWorkspaceManager 已初始化', { agentsDir });
+syncReminderToolSkills(config.codexWorkdir, agentsDir);
 const dedupStore = new MessageDedupStore(config.dedupWindowSeconds);
 log.debug('MessageDedupStore 已初始化', { dedupWindowSeconds: config.dedupWindowSeconds });
 const rateLimitStore = new RateLimitStore(config.rateLimitMaxMessages, config.rateLimitWindowSeconds);
@@ -166,6 +171,13 @@ const handleChatText = createChatHandler({
   runnerEnabled: config.runnerEnabled,
   defaultModel: config.codexModel,
   defaultSearch: config.codexSearch,
+  reminderDbPath,
+  sendText,
+});
+
+const reminderStore = new ReminderStore(reminderDbPath);
+const reminderDispatcher = new ReminderDispatcher({
+  store: reminderStore,
   sendText,
 });
 
@@ -211,4 +223,29 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
 app.listen(config.port, () => {
   log.info(`✅ wecom-codex gateway 已启动，监听 http://127.0.0.1:${config.port}`);
   memorySteward.start();
+  reminderDispatcher.start();
 });
+
+function syncReminderToolSkills(defaultWorkspaceDir: string, customAgentsRootDir: string): void {
+  installReminderToolSkill(path.resolve(defaultWorkspaceDir));
+  const usersDir = path.join(customAgentsRootDir, 'users');
+  if (!fs.existsSync(usersDir)) {
+    return;
+  }
+  for (const userDirName of fs.readdirSync(usersDir)) {
+    const userDir = path.join(usersDir, userDirName);
+    if (!fs.statSync(userDir).isDirectory()) {
+      continue;
+    }
+    for (const workspaceName of fs.readdirSync(userDir)) {
+      if (workspaceName === 'shared-memory' || workspaceName === '_memory-steward') {
+        continue;
+      }
+      const workspaceDir = path.join(userDir, workspaceName);
+      if (!fs.statSync(workspaceDir).isDirectory()) {
+        continue;
+      }
+      installReminderToolSkill(workspaceDir);
+    }
+  }
+}
