@@ -355,7 +355,7 @@ async function enrichInboundContent(channel: 'wecom' | 'feishu', content: string
     const localPath = await feishuApi.downloadMessageResource({
       messageId: inboundRef.messageId,
       fileKey: inboundRef.key,
-      type: inboundRef.kind,
+      type: mapFeishuResourceTypes(inboundRef.kind),
     });
     return {
       content: `${content}\nlocal_${inboundRef.kind}_path=${localPath}`,
@@ -376,6 +376,19 @@ async function enrichInboundContent(channel: 'wecom' | 'feishu', content: string
       errorMessage,
     };
   }
+}
+
+function mapFeishuResourceTypes(kind: 'image' | 'file' | 'audio' | 'media' | 'sticker'): Array<'image' | 'file'> {
+  if (kind === 'image') {
+    return ['image'];
+  }
+  if (kind === 'sticker') {
+    throw new Error('sticker resource download is not supported by feishu message resource API');
+  }
+  if (kind === 'media') {
+    return ['file', 'image'];
+  }
+  return ['file', 'image'];
 }
 
 function extractFeishuBinaryRef(content: string): {

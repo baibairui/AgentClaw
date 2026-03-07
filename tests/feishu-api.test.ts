@@ -275,35 +275,33 @@ describe('FeishuApi token cache', () => {
 
   it('downloads user message resource with message_id + file_key + type', async () => {
     const imageCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'feishu-resource-'));
-    let seenUrl = '';
-    global.fetch = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
-      if (url.includes('/auth/v3/tenant_access_token/internal')) {
-        return new Response(
-          JSON.stringify({
-            code: 0,
-            msg: 'ok',
-            tenant_access_token: 'tenant-token',
-            expire: 7200,
+    const calls: Array<{ message_id: string; file_key: string; type: string }> = [];
+    const sdkClient = {
+      im: {
+        messageResource: {
+          get: vi.fn(async (payload: { params: { type: string }; path: { message_id: string; file_key: string } }) => {
+            calls.push({
+              message_id: payload.path.message_id,
+              file_key: payload.path.file_key,
+              type: payload.params.type,
+            });
+            return {
+              headers: { 'content-type': 'image/png' },
+              writeFile: async (filePath: string) => {
+                fs.writeFileSync(filePath, Buffer.from('fake-resource-bytes'));
+              },
+            };
           }),
-          { status: 200 },
-        );
-      }
-      if (url.includes('/open-apis/im/v1/messages/')) {
-        seenUrl = url;
-        return new Response(Buffer.from('fake-resource-bytes'), {
-          status: 200,
-          headers: { 'content-type': 'image/png' },
-        });
-      }
-      throw new Error(`unexpected url: ${url}`);
-    }) as typeof fetch;
+        },
+      },
+    };
 
     const api = new FeishuApi({
       appId: 'cli_xxx',
       appSecret: 'yyy',
       timeoutMs: 2000,
       imageCacheDir,
+      sdkClient,
     });
 
     const filePath = await api.downloadMessageResource({
@@ -311,9 +309,56 @@ describe('FeishuApi token cache', () => {
       fileKey: 'img_123',
       type: 'image',
     });
-    expect(seenUrl).toContain('/open-apis/im/v1/messages/om_123/resources/img_123');
-    expect(seenUrl).toContain('type=image');
+    expect(calls).toEqual([
+      { message_id: 'om_123', file_key: 'img_123', type: 'image' },
+    ]);
     expect(fs.existsSync(filePath)).toBe(true);
     expect(fs.readFileSync(filePath).toString('utf8')).toBe('fake-resource-bytes');
+  });
+
+  it('falls back to next resource type on 234001 invalid param', async () => {
+    const imageCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'feishu-resource-fallback-'));
+    const seenTypes: string[] = [];
+    const sdkClient = {
+      im: {
+        messageResource: {
+          get: vi.fn(async (payload: { params: { type: string } }) => {
+            seenTypes.push(payload.params.type);
+            if (payload.params.type === 'image') {
+              throw {
+                response: {
+                  status: 400,
+                  data: { code: 234001, msg: 'Invalid request param.' },
+                },
+              };
+            }
+            return {
+              headers: { 'content-type': 'audio/mpeg' },
+              writeFile: async (filePath: string) => {
+                fs.writeFileSync(filePath, Buffer.from('fake-fallback-bytes'));
+              },
+            };
+          }),
+        },
+      },
+    };
+
+    const api = new FeishuApi({
+      appId: 'cli_xxx',
+      appSecret: 'yyy',
+      timeoutMs: 2000,
+      imageCacheDir,
+      sdkClient,
+    });
+
+    const filePath = await api.downloadMessageResource({
+      messageId: 'om_999',
+      fileKey: 'file_999',
+      type: ['image', 'file'],
+    });
+    expect(seenTypes).toEqual(['image', 'file']);
+    expect(filePath.endsWith('.mp3')).toBe(true);
+    expect(fs.existsSync(filePath)).toBe(true);
+    expect(fs.readFileSync(filePath).toString('utf8')).toBe('fake-fallback-bytes');
   });
 });

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Client as LarkClient, Domain as LarkDomain, LoggerLevel as LarkLoggerLevel } from '@larksuiteoapi/node-sdk';
 
 import { createLogger } from '../utils/logger.js';
 
@@ -11,6 +12,7 @@ interface FeishuApiOptions {
   timeoutMs?: number;
   retryOnTimeout?: boolean;
   imageCacheDir?: string;
+  sdkClient?: FeishuSdkClient;
 }
 
 interface TokenCache {
@@ -21,6 +23,20 @@ interface TokenCache {
 export interface FeishuOutgoingMessage {
   msgType: string;
   content: Record<string, unknown> | string;
+}
+
+interface FeishuSdkClient {
+  im: {
+    messageResource: {
+      get: (payload: {
+        params: { type: string };
+        path: { message_id: string; file_key: string };
+      }) => Promise<{
+        writeFile: (filePath: string) => Promise<unknown>;
+        headers?: unknown;
+      }>;
+    };
+  };
 }
 
 const DEFAULT_TEXT_CHUNK_BYTES = 2000;
@@ -67,6 +83,7 @@ export class FeishuApi {
   private readonly timeoutMs: number;
   private readonly retryOnTimeout: boolean;
   private readonly imageCacheDir: string;
+  private readonly sdkClient: FeishuSdkClient;
   private tokenCache?: TokenCache;
   private tokenInFlight?: Promise<string>;
 
@@ -76,6 +93,12 @@ export class FeishuApi {
     this.timeoutMs = options.timeoutMs ?? 15_000;
     this.retryOnTimeout = options.retryOnTimeout ?? false;
     this.imageCacheDir = options.imageCacheDir ?? path.resolve(process.cwd(), '.data', 'feishu-images');
+    this.sdkClient = options.sdkClient ?? new LarkClient({
+      appId: this.appId,
+      appSecret: this.appSecret,
+      domain: LarkDomain.Feishu,
+      loggerLevel: LarkLoggerLevel.error,
+    });
     fs.mkdirSync(this.imageCacheDir, { recursive: true });
     log.debug('FeishuApi 构造完成', {
       appId: this.appId,
@@ -185,40 +208,43 @@ export class FeishuApi {
   async downloadMessageResource(input: {
     messageId: string;
     fileKey: string;
-    type: 'image' | 'file' | 'audio' | 'media' | 'sticker';
+    type: 'image' | 'file' | ReadonlyArray<'image' | 'file'>;
   }): Promise<string> {
     const messageId = input.messageId.trim();
     const fileKey = input.fileKey.trim();
     if (!messageId || !fileKey) {
       throw new Error('feishu message resource download failed: messageId and fileKey are required');
     }
+    const types = normalizeResourceTypes(input.type);
     let lastError: Error | undefined;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const token = await this.getTenantAccessToken();
-        const url = new URL(
-          `https://open.feishu.cn/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(fileKey)}`,
-        );
-        url.searchParams.set('type', input.type);
-        const response = await this.fetchWithTimeout(url.toString(), {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          if (response.status === 401 || response.status === 403) {
-            this.tokenCache = undefined;
+    for (const candidateType of types) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await this.sdkClient.im.messageResource.get({
+            params: { type: candidateType },
+            path: {
+              message_id: messageId,
+              file_key: fileKey,
+            },
+          });
+          const contentType = resolveSdkHeadersContentType(response.headers);
+          const ext = resolveGenericExtension(contentType);
+          const filePath = path.join(
+            this.imageCacheDir,
+            `${Date.now()}-${candidateType}-${sanitizeKey(fileKey)}.${ext}`,
+          );
+          await response.writeFile(filePath);
+          return filePath;
+        } catch (error) {
+          if (shouldTryNextResourceTypeFromError(error)) {
+            lastError = toError(error);
+            break;
           }
-          throw new Error(`feishu message resource download failed: ${response.status} ${clipText(text, 200)}`);
+          lastError = toError(error);
         }
-        return await writeFeishuBinaryToFile(this.imageCacheDir, fileKey, response, input.type);
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
       }
     }
-    throw lastError ?? new Error('feishu message resource download failed: unknown');
+    throw lastError ?? new Error(`feishu message resource download failed: unsupported type ${types.join(',')}`);
   }
 
   private async sendSingleMessage(openId: string, message: FeishuOutgoingMessage): Promise<void> {
@@ -378,6 +404,109 @@ function resolveSimpleContent(msgType: string, value: string): Record<string, st
     return { file_key: value };
   }
   return { text: value };
+}
+
+function normalizeResourceTypes(type: 'image' | 'file' | ReadonlyArray<'image' | 'file'>): Array<'image' | 'file'> {
+  const list = Array.isArray(type) ? type : [type];
+  const seen = new Set<'image' | 'file'>();
+  for (const item of list) {
+    seen.add(item);
+  }
+  if (seen.size === 0) {
+    return ['file'];
+  }
+  return [...seen];
+}
+
+function shouldTryNextResourceType(status: number, bodyText: string): boolean {
+  if (status !== 400) {
+    return false;
+  }
+  return extractOpenApiCode(bodyText) === 234001;
+}
+
+function extractOpenApiCode(bodyText: string): number | undefined {
+  try {
+    const parsed = JSON.parse(bodyText) as { code?: unknown };
+    if (typeof parsed.code === 'number') {
+      return parsed.code;
+    }
+    if (typeof parsed.code === 'string') {
+      const num = Number(parsed.code);
+      return Number.isFinite(num) ? num : undefined;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function shouldTryNextResourceTypeFromError(error: unknown): boolean {
+  const status = extractErrorStatus(error);
+  if (status !== 400) {
+    return false;
+  }
+  const bodyText = extractErrorBodyText(error);
+  return extractOpenApiCode(bodyText) === 234001;
+}
+
+function extractErrorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+  const asRecord = error as Record<string, unknown>;
+  const directStatus = asRecord.status;
+  if (typeof directStatus === 'number') {
+    return directStatus;
+  }
+  const response = asRecord.response;
+  if (!response || typeof response !== 'object') {
+    return undefined;
+  }
+  const responseStatus = (response as Record<string, unknown>).status;
+  return typeof responseStatus === 'number' ? responseStatus : undefined;
+}
+
+function extractErrorBodyText(error: unknown): string {
+  if (!error || typeof error !== 'object') {
+    return '';
+  }
+  const asRecord = error as Record<string, unknown>;
+  const response = asRecord.response;
+  if (response && typeof response === 'object') {
+    const data = (response as Record<string, unknown>).data;
+    if (typeof data === 'string') {
+      return data;
+    }
+    if (data && typeof data === 'object') {
+      return JSON.stringify(data);
+    }
+  }
+  const message = asRecord.message;
+  return typeof message === 'string' ? message : '';
+}
+
+function resolveSdkHeadersContentType(headers: unknown): string {
+  if (!headers || typeof headers !== 'object') {
+    return 'application/octet-stream';
+  }
+  const record = headers as Record<string, unknown>;
+  const direct =
+    record['content-type']
+    ?? record['Content-Type']
+    ?? record['contentType']
+    ?? record['ContentType'];
+  if (typeof direct === 'string') {
+    return direct;
+  }
+  if (Array.isArray(direct) && typeof direct[0] === 'string') {
+    return direct[0];
+  }
+  return 'application/octet-stream';
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function sanitizeKey(key: string): string {
