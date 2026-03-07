@@ -45,6 +45,7 @@ Commands:
   start         生产启动（启动前自动配置检查）
   setup         逐行交互配置向导（写入 .env）
   check         仅执行配置检查
+  update        拉取远程最新代码并更新依赖/构建
   build         执行构建
   test          执行测试
   help          查看帮助
@@ -64,6 +65,9 @@ switch (command) {
     break;
   case 'check':
     run('node', ['./bin/config-check.mjs']);
+    break;
+  case 'update':
+    run('node', ['./bin/update-gateway.mjs']);
     break;
   case 'build':
     run('npm', ['run', 'build']);
