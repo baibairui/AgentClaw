@@ -26,26 +26,26 @@ async function loadConfigWithEnv(env: Record<string, string | undefined>) {
   }
 }
 
-describe('config playwright mcp defaults', () => {
-  it('enables playwright mcp by default when not explicitly disabled', async () => {
+describe('config browser mcp defaults', () => {
+  it('enables browser mcp by default when not explicitly disabled', async () => {
     const config = await loadConfigWithEnv({
       WECOM_ENABLED: 'false',
       FEISHU_ENABLED: 'false',
       CODEX_SANDBOX: 'full-auto',
-      PLAYWRIGHT_MCP_ENABLED: undefined,
+      BROWSER_MCP_ENABLED: undefined,
     });
 
-    expect(config.playwrightMcpEnabled).toBe(true);
+    expect(config.browserMcpEnabled).toBe(true);
   });
 
-  it('allows explicitly disabling playwright mcp', async () => {
+  it('allows explicitly disabling browser mcp', async () => {
     const config = await loadConfigWithEnv({
       WECOM_ENABLED: 'false',
       FEISHU_ENABLED: 'false',
       CODEX_SANDBOX: 'full-auto',
-      PLAYWRIGHT_MCP_ENABLED: 'false',
+      BROWSER_MCP_ENABLED: 'false',
     });
 
-    expect(config.playwrightMcpEnabled).toBe(false);
+    expect(config.browserMcpEnabled).toBe(false);
   });
 });

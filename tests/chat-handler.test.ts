@@ -117,7 +117,6 @@ describe('createChatHandler', () => {
         createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -164,7 +163,6 @@ describe('createChatHandler', () => {
         createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -193,7 +191,6 @@ describe('createChatHandler', () => {
         isSharedMemoryEmpty: () => false,
         isWorkspaceIdentityEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -231,7 +228,6 @@ describe('createChatHandler', () => {
         createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -259,7 +255,6 @@ describe('createChatHandler', () => {
         createWorkspace,
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -302,7 +297,6 @@ describe('createChatHandler', () => {
         createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -339,7 +333,6 @@ describe('createChatHandler', () => {
         createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -369,7 +362,6 @@ describe('createChatHandler', () => {
         createWorkspace,
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -407,7 +399,6 @@ describe('createChatHandler', () => {
         createWorkspace,
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -450,7 +441,6 @@ describe('createChatHandler', () => {
         createWorkspace,
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -486,7 +476,6 @@ describe('createChatHandler', () => {
         createWorkspace,
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -523,7 +512,6 @@ describe('createChatHandler', () => {
         createWorkspace: () => ({ agentId: 'frontend', workspaceDir: '/tmp/frontend' }),
         isSharedMemoryEmpty: () => false,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -536,35 +524,6 @@ describe('createChatHandler', () => {
       workdir: '/tmp/frontend',
     }));
     expect(sessionStore.getSession('local-owner', 'frontend')).toBe('thread_new');
-  });
-
-  it('opens browser for /open when enabled', async () => {
-    const sendText = vi.fn(async () => undefined);
-    const open = vi.fn(async () => undefined);
-    const sessionStore = createSessionStore();
-    const handler = createChatHandler({
-      sessionStore,
-      rateLimitStore: { allow: () => true },
-      codexRunner: {
-        run: async () => ({ threadId: 'thread_new', rawOutput: '' }),
-        review: async () => ({ rawOutput: '' }),
-      },
-      agentWorkspaceManager: {
-        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
-        isSharedMemoryEmpty: () => false,
-      },
-      browserOpener: { open },
-      browserOpenEnabled: true,
-      runnerEnabled: true,
-      defaultSearch: false,
-      reminderDbPath: '/tmp/reminders.db',
-      sendText,
-    });
-
-    await handler({ channel: 'wecom', userId: 'u1', content: '/open https://example.com' });
-
-    expect(open).toHaveBeenCalledWith('https://example.com');
-    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '✅ 已尝试打开浏览器：https://example.com');
   });
 
   it('publishes workspace for /deploy-workspace command', async () => {
@@ -583,7 +542,6 @@ describe('createChatHandler', () => {
         isSharedMemoryEmpty: () => false,
       },
       workspacePublisher: { publish },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -613,7 +571,6 @@ describe('createChatHandler', () => {
         createWorkspace,
         isSharedMemoryEmpty: () => true,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -656,7 +613,6 @@ describe('createChatHandler', () => {
           hasIdentity: true,
         }),
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -696,7 +652,6 @@ describe('createChatHandler', () => {
         createWorkspace: () => ({ agentId: 'memory-onboarding', workspaceDir: '/tmp/memory-onboarding' }),
         isSharedMemoryEmpty: () => true,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -733,7 +688,6 @@ describe('createChatHandler', () => {
         createWorkspace,
         isSharedMemoryEmpty: () => true,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',
@@ -773,7 +727,6 @@ describe('createChatHandler', () => {
         createWorkspace: () => ({ agentId: 'memory-onboarding', workspaceDir: '/tmp/memory-onboarding' }),
         isSharedMemoryEmpty: () => true,
       },
-      browserOpenEnabled: false,
       runnerEnabled: true,
       defaultSearch: false,
       reminderDbPath: '/tmp/reminders.db',

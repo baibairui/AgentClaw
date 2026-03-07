@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildCodexArgs, buildCodexReviewArgs, parseCodexJsonl } from '../src/services/codex-runner.js';
+import { buildCodexArgs, buildCodexReviewArgs, parseCodexJsonl, summarizeCodexItem } from '../src/services/codex-runner.js';
 
 describe('parseCodexJsonl', () => {
   it('parses thread id and latest agent message', () => {
@@ -21,6 +21,26 @@ describe('parseCodexJsonl', () => {
 
     expect(result.threadId).toBe('t_456');
     expect(result.answer).toContain('未返回可解析内容');
+  });
+});
+
+describe('summarizeCodexItem', () => {
+  it('keeps key mcp tool call fields for logging', () => {
+    expect(summarizeCodexItem({
+      type: 'mcp_tool_call',
+      server: 'gateway_browser',
+      tool_name: 'browser_navigate',
+      arguments: { url: 'https://example.com' },
+    })).toEqual({
+      type: 'mcp_tool_call',
+      server: 'gateway_browser',
+      toolName: 'browser_navigate',
+      argumentsPreview: '{"url":"https://example.com"}',
+    });
+  });
+
+  it('returns undefined for missing items', () => {
+    expect(summarizeCodexItem(undefined)).toBeUndefined();
   });
 });
 
@@ -103,7 +123,7 @@ describe('buildCodexArgs', () => {
     expect(args).toContain('mcp_servers.gateway_reminder.env.REMINDER_AGENT_ID="assistant"');
   });
 
-  it('injects persistent playwright MCP url config under an isolated server name', () => {
+  it('injects persistent browser MCP url config under gateway_browser only', () => {
     const args = buildCodexArgs(
       {
         prompt: 'open browser',
@@ -114,7 +134,7 @@ describe('buildCodexArgs', () => {
     );
 
     expect(args).toContain('-c');
-    expect(args).toContain('mcp_servers.gateway_playwright.url="http://127.0.0.1:8931/mcp"');
+    expect(args).toContain('mcp_servers.gateway_browser.url="http://127.0.0.1:8931/mcp"');
   });
 });
 
@@ -158,7 +178,7 @@ describe('buildCodexReviewArgs', () => {
     ]);
   });
 
-  it('injects persistent playwright MCP url config for review runs under an isolated server name', () => {
+  it('injects persistent browser MCP url config for review runs under gateway_browser only', () => {
     const args = buildCodexReviewArgs(
       { mode: 'uncommitted', workdir: '/tmp/agent-f' },
       'full-auto',
@@ -166,6 +186,6 @@ describe('buildCodexReviewArgs', () => {
     );
 
     expect(args).toContain('-c');
-    expect(args).toContain('mcp_servers.gateway_playwright.url="http://127.0.0.1:8931/mcp"');
+    expect(args).toContain('mcp_servers.gateway_browser.url="http://127.0.0.1:8931/mcp"');
   });
 });

@@ -127,19 +127,18 @@ CODEX_SEARCH=false
 - `CODEX_SANDBOX`：Codex 执行沙箱模式，通常用 `full-auto`
 - `RUNNER_ENABLED`：是否允许网关实际调用 Codex
 - `CODEX_SEARCH`：默认是否开启联网搜索
-- `PLAYWRIGHT_MCP_ENABLED`：默认开启；只有你明确不需要浏览器自动化时，才设为 `false`
-- `PLAYWRIGHT_MCP_URL`：可选。如果你已有外部常驻 Playwright MCP，可直接填它的 URL
-- `PLAYWRIGHT_MCP_PORT`：可选。gateway 本地自启动 Playwright MCP 时使用的端口，默认 `8931`，默认连接 URL 是 `http://localhost:8931/mcp`
-- `PLAYWRIGHT_MCP_PROFILE_DIR`：可选，共享浏览器登录态目录；默认是 `.data/playwright/profile`
-- `PLAYWRIGHT_MCP_OUTPUT_DIR`：可选，浏览器截图和运行产物目录；默认是 `.data/playwright/artifacts`
+- `BROWSER_MCP_ENABLED`：默认开启；只有你明确不需要浏览器自动化时，才设为 `false`
+- `BROWSER_MCP_URL`：可选。如果你已有外部 browser MCP，可直接填它的 URL
+- `BROWSER_MCP_PORT`：可选。gateway 本地自启动内置 browser MCP 时使用的端口，默认 `8931`
+- `BROWSER_MCP_PROFILE_DIR`：可选，共享浏览器登录态目录；默认是 `.data/browser/profile`
 
 浏览器能力说明：
 
-- 默认情况下，gateway 启动时会先拉起本地常驻 `@playwright/mcp`，`CodexRunner` 只连接它的本地 URL
-- 运行时注入使用独立的 MCP server 名 `gateway_playwright`，避免和用户自己 `~/.codex/config.toml` 里的 `playwright` 配置发生合并冲突
+- 默认情况下，gateway 会在第一次需要浏览器工具时懒启动内置 browser MCP 和可见 Chrome 窗口
+- 浏览器由 gateway 自己持有共享 context 和持久 profile，所以浏览器窗口不会随着单次 Codex run 结束而关闭
+- 运行时注入使用独立的 MCP server 名 `gateway_browser`，避免和用户自己 `~/.codex/config.toml` 里的浏览器配置发生合并冲突
 - 所有 agent 默认共用同一套浏览器 profile，所以登录态可以复用
-- 首次浏览器冷启动成本被前移到 gateway 启动阶段，而不是落到用户的第一个浏览器任务上
-- `/open <URL>` 仍然保留，作为宿主机直接打开浏览器的兜底能力
+- 浏览器窗口只有在手动关闭它或 gateway 退出时才会结束
 
 如果你不接企业微信，可以这样关掉：
 
@@ -359,7 +358,6 @@ FEISHU_LONG_CONNECTION=true
 /skills
 /skills global
 /skills agent
-/open <URL>
 /review
 /review base <分支>
 /review commit <SHA>

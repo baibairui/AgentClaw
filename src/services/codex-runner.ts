@@ -3,8 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('CodexRunner');
-// Use an isolated MCP server id so gateway runtime config never collides with user-level ~/.codex config.
-const PLAYWRIGHT_MCP_SERVER_NAME = 'gateway_playwright';
+const BROWSER_MCP_SERVER_NAME = 'gateway_browser';
 
 export interface CodexRunInput {
   prompt: string;
@@ -53,7 +52,7 @@ interface CodexRunnerOptions {
   timeoutMinMs?: number;
   timeoutMaxMs?: number;
   timeoutPerCharMs?: number;
-  playwrightMcpUrl?: string;
+  browserMcpUrl?: string;
   /** 'full-auto' (沙箱) 或 'none' (无沙箱) */
   sandbox?: 'full-auto' | 'none';
 }
@@ -106,7 +105,7 @@ export class CodexRunner {
   private readonly timeoutMinMs: number;
   private readonly timeoutMaxMs: number;
   private readonly timeoutPerCharMs: number;
-  private readonly playwrightMcpUrl?: string;
+  private readonly browserMcpUrl?: string;
   private readonly sandbox: 'full-auto' | 'none';
 
   constructor(options: CodexRunnerOptions = {}) {
@@ -116,7 +115,7 @@ export class CodexRunner {
     this.timeoutMinMs = options.timeoutMinMs ?? DEFAULT_TIMEOUT_MIN_MS;
     this.timeoutMaxMs = options.timeoutMaxMs ?? DEFAULT_TIMEOUT_MAX_MS;
     this.timeoutPerCharMs = options.timeoutPerCharMs ?? DEFAULT_TIMEOUT_PER_CHAR_MS;
-    this.playwrightMcpUrl = options.playwrightMcpUrl?.trim() || undefined;
+    this.browserMcpUrl = options.browserMcpUrl?.trim() || undefined;
     this.sandbox = options.sandbox ?? 'full-auto';
     log.debug('CodexRunner 构造完成', {
       codexBin: this.codexBin,
@@ -125,13 +124,13 @@ export class CodexRunner {
       timeoutMinMs: this.timeoutMinMs,
       timeoutMaxMs: this.timeoutMaxMs,
       timeoutPerCharMs: this.timeoutPerCharMs,
-      playwrightMcpUrl: this.playwrightMcpUrl ?? '(disabled)',
+      browserMcpUrl: this.browserMcpUrl ?? '(disabled)',
       sandbox: this.sandbox,
     });
   }
 
   run(input: CodexRunInput): Promise<CodexRunResult> {
-    const args = buildCodexArgs(input, this.sandbox, this.playwrightMcpUrl);
+    const args = buildCodexArgs(input, this.sandbox, this.browserMcpUrl);
     return this.runJsonl({
       args,
       prompt: input.prompt,
@@ -156,7 +155,7 @@ export class CodexRunner {
   }
 
   review(input: CodexReviewInput): Promise<{ rawOutput: string }> {
-    const args = buildCodexReviewArgs(input, this.sandbox, this.playwrightMcpUrl);
+    const args = buildCodexReviewArgs(input, this.sandbox, this.browserMcpUrl);
     const timeoutHint = input.prompt ?? input.target ?? input.mode;
     return this.runJsonl({
       args,
@@ -391,7 +390,7 @@ export class CodexRunner {
 export function buildCodexArgs(
   input: Pick<CodexRunInput, 'prompt' | 'threadId' | 'model' | 'search' | 'workdir' | 'reminderToolContext'>,
   sandbox: 'full-auto' | 'none',
-  playwrightMcpUrl?: string,
+  browserMcpUrl?: string,
 ): string[] {
   const sandboxFlag = sandbox === 'none'
     ? '--dangerously-bypass-approvals-and-sandbox'
@@ -414,8 +413,8 @@ export function buildCodexArgs(
   if (input.reminderToolContext) {
     args.unshift(...buildReminderMcpConfigArgs(input.reminderToolContext));
   }
-  if (playwrightMcpUrl?.trim()) {
-    args.unshift(...buildPlaywrightMcpConfigArgs(playwrightMcpUrl.trim()));
+  if (browserMcpUrl?.trim()) {
+    args.unshift(...buildBrowserMcpConfigArgs(browserMcpUrl.trim()));
   }
   args.push(input.prompt);
   return args;
@@ -424,7 +423,7 @@ export function buildCodexArgs(
 export function buildCodexReviewArgs(
   input: Pick<CodexReviewInput, 'mode' | 'target' | 'prompt' | 'model' | 'search' | 'workdir'>,
   sandbox: 'full-auto' | 'none',
-  playwrightMcpUrl?: string,
+  browserMcpUrl?: string,
 ): string[] {
   const sandboxFlag = sandbox === 'none'
     ? '--dangerously-bypass-approvals-and-sandbox'
@@ -448,8 +447,8 @@ export function buildCodexReviewArgs(
   if (input.search) {
     args.unshift('--search');
   }
-  if (playwrightMcpUrl?.trim()) {
-    args.unshift(...buildPlaywrightMcpConfigArgs(playwrightMcpUrl.trim()));
+  if (browserMcpUrl?.trim()) {
+    args.unshift(...buildBrowserMcpConfigArgs(browserMcpUrl.trim()));
   }
   if (input.prompt) {
     args.push(input.prompt);
@@ -457,10 +456,10 @@ export function buildCodexReviewArgs(
   return args;
 }
 
-function buildPlaywrightMcpConfigArgs(url: string): string[] {
+function buildBrowserMcpConfigArgs(url: string): string[] {
   return [
     '-c',
-    `mcp_servers.${PLAYWRIGHT_MCP_SERVER_NAME}.url=${tomlString(url)}`,
+    `mcp_servers.${BROWSER_MCP_SERVER_NAME}.url=${tomlString(url)}`,
   ];
 }
 
@@ -527,9 +526,10 @@ function handleCodexLine(
   try {
     const event = JSON.parse(line) as Record<string, unknown>;
     onEvent();
+    const item = event.item as Record<string, unknown> | undefined;
     log.debug('Codex 事件', {
       type: event.type,
-      itemType: (event.item as Record<string, unknown> | undefined)?.type,
+      itemType: item?.type,
     });
 
     if (event.type === 'thread.started' && typeof event.thread_id === 'string') {
@@ -537,8 +537,11 @@ function handleCodexLine(
       log.info('Codex thread.started', { threadId: event.thread_id });
     }
 
+    if ((event.type === 'item.started' || event.type === 'item.completed') && item?.type === 'mcp_tool_call') {
+      log.info(`Codex ${String(event.type)} mcp_tool_call`, summarizeCodexItem(item));
+    }
+
     if (event.type === 'item.completed') {
-      const item = event.item as Record<string, unknown> | undefined;
       if (item?.type === 'agent_message' && typeof item.text === 'string' && onMessage) {
         log.info('Codex item.completed agent_message', {
           textLength: item.text.length,
@@ -549,6 +552,35 @@ function handleCodexLine(
     }
   } catch {
     log.debug('Codex stdout 非 JSON 行', { line: line.substring(0, 100) });
+  }
+}
+
+export function summarizeCodexItem(item: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!item) {
+    return undefined;
+  }
+  const toolName = item.tool_name ?? item.name ?? item.toolName;
+  const args = item.arguments ?? item.args ?? item.input;
+  return {
+    type: item.type,
+    server: item.server ?? item.server_name ?? item.serverName,
+    toolName: typeof toolName === 'string' ? toolName : undefined,
+    argumentsPreview: summarizeCodexArguments(args),
+  };
+}
+
+function summarizeCodexArguments(args: unknown): string | undefined {
+  if (args === undefined) {
+    return undefined;
+  }
+  try {
+    const serialized = JSON.stringify(args);
+    if (!serialized) {
+      return undefined;
+    }
+    return serialized.length > 300 ? `${serialized.slice(0, 300)}...` : serialized;
+  } catch {
+    return String(args);
   }
 }
 
