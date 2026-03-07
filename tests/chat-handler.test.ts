@@ -566,6 +566,43 @@ describe('createChatHandler', () => {
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('shared-memory 为空'));
   });
 
+  it('starts memory onboarding when current agent identity is not initialized', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const run = vi.fn(async () => ({ threadId: 'thread_onboarding', rawOutput: '' }));
+    const sessionStore = createSessionStore();
+    const createWorkspace = vi.fn(() => ({ agentId: 'memory-onboarding', workspaceDir: '/tmp/memory-onboarding' }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace,
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => true,
+      },
+      browserOpenEnabled: false,
+      runnerEnabled: true,
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: '继续' });
+
+    expect(createWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+      template: 'memory-onboarding',
+    }));
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      workdir: '/tmp/memory-onboarding',
+      search: false,
+      prompt: expect.stringContaining('附加目标：如果目标 agent 的自身份未初始化'),
+    }));
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('当前 agent 自身份未初始化'));
+  });
+
   it('routes follow-up user replies to hidden onboarding session while shared memory is still empty', async () => {
     const sendText = vi.fn(async () => undefined);
     const run = vi.fn(async () => ({ threadId: 'thread_onboarding', rawOutput: '' }));
