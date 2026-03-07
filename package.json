@@ -5,9 +5,11 @@
   "main": "dist/server.js",
   "scripts": {
     "test": "LOG_LEVEL=error vitest run",
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "dev": "node ./bin/start-gateway.mjs dev",
+    "start": "node ./bin/start-gateway.mjs start",
+    "up": "node ./bin/start-gateway.mjs dev",
     "build": "tsc -p tsconfig.json",
+    "config:check": "node ./bin/config-check.mjs",
     "publish:workspace": "bash ./bin/publish-workspace.sh"
   },
   "keywords": [
@@ -29,6 +31,9 @@
     "url": "https://github.com/baibairui/codex-gateway/issues"
   },
   "homepage": "https://github.com/baibairui/codex-gateway#readme",
+  "bin": {
+    "codexclaw": "./bin/codexclaw.mjs"
+  },
   "type": "module",
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.59.0",
