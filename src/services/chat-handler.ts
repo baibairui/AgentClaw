@@ -1,6 +1,7 @@
 import { commandNeedsAgentList, commandNeedsDetailedSessions, handleUserCommand, maskThreadId } from '../features/user-command.js';
 import type { AgentListItem, AgentRecord, SessionListItem } from '../stores/session-store.js';
 import { formatCodexModelsText, loadCodexModels, resolveModelFromSnapshot } from './codex-models.js';
+import { listSkillsForAgentWorkspace, type SkillCatalogEntry } from './skill-registry.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('ChatHandler');
@@ -85,6 +86,7 @@ interface ChatHandlerDeps {
   defaultSearch: boolean;
   reminderDbPath: string;
   sendText: (channel: Channel, userId: string, content: string) => Promise<void>;
+  listSkills?: (workspaceDir: string) => SkillCatalogEntry[];
 }
 
 interface ReminderTriggerInput {
@@ -178,6 +180,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
   const userModelOverrides = new Map<string, string>();
   const userSearchOverrides = new Map<string, boolean>();
   const onboardingKickoffInFlight = new Set<string>();
+  const listSkills = deps.listSkills ?? listSkillsForAgentWorkspace;
 
   async function runReminderTrigger(input: {
     channel: Channel;
@@ -586,6 +589,26 @@ ${clipMessage(text, 500)}
       }
       if (commandResult.queryModels) {
         await deps.sendText(channel, userId, formatCodexModelsText(loadCodexModels()));
+        return;
+      }
+      if (commandResult.querySkills) {
+        const skillList = listSkills(currentAgent.workspaceDir);
+        if (skillList.length === 0) {
+          await deps.sendText(channel, userId, '当前未发现可用 skill。');
+          return;
+        }
+        const lines = skillList.map((item, index) => {
+          const desc = item.description ? ` - ${item.description}` : '';
+          return `${index + 1}. ${item.name} [${item.source}]${desc}`;
+        });
+        await deps.sendText(
+          channel,
+          userId,
+          [
+            `当前会话可用 skill（agent：${currentAgent.name} / ${currentAgent.agentId}）`,
+            ...lines,
+          ].join('\n'),
+        );
         return;
       }
       if (commandResult.clearModel) {

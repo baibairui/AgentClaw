@@ -16,6 +16,7 @@ export interface UserCommandResult {
   renameName?: string;
   queryModel?: boolean;
   queryModels?: boolean;
+  querySkills?: boolean;
   setModel?: string;
   clearModel?: boolean;
   querySearch?: boolean;
@@ -112,6 +113,7 @@ export function handleUserCommand(content: string, context: UserCommandContext =
           '/model <模型名> - 切换模型',
           '/model reset - 重置为默认模型',
           '/models - 查看当前 Codex 支持的模型',
+          '/skills - 查看当前会话可用 skill 列表（全局 + 当前 agent）',
           '/search - 查看联网搜索状态',
           '/search on|off - 开启/关闭联网搜索',
           '/remind - 已废弃，请直接描述提醒需求，交由 agent 调用提醒工具处理',
@@ -268,6 +270,11 @@ export function handleUserCommand(content: string, context: UserCommandContext =
       return {
         handled: true,
         queryModels: true,
+      };
+    case '/skills':
+      return {
+        handled: true,
+        querySkills: true,
       };
     case '/search': {
       const action = (parts[1] ?? '').toLowerCase();

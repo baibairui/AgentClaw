@@ -210,6 +210,38 @@ describe('createChatHandler', () => {
     expect(sessionStore.getCurrentAgent('wecom:u1').agentId).toBe('frontend');
   });
 
+  it('lists merged skills for current agent by /skills command', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: async () => ({ threadId: 'thread_new', rawOutput: '' }),
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        isSharedMemoryEmpty: () => false,
+      },
+      browserOpenEnabled: false,
+      runnerEnabled: true,
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+      listSkills: () => ([
+        { name: 'using-superpowers', source: 'global', skillDir: '/root/.agents/skills/using-superpowers' },
+        { name: 'reminder-tool', source: 'agent-local', skillDir: '/tmp/agent/.agent/skills/reminder-tool' },
+      ]),
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: '/skills' });
+
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('当前会话可用 skill'));
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('using-superpowers [global]'));
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('reminder-tool [agent-local]'));
+  });
+
   it('creates memory onboarding agent by command', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();

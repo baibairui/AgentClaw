@@ -49,6 +49,7 @@ describe('handleUserCommand', () => {
     expect(result.message).toContain('可用命令');
     expect(result.message).toContain('/agent create <名称>');
     expect(result.message).toContain('/skill-agent');
+    expect(result.message).toContain('/skills');
     expect(result.message).not.toContain('/agent init-memory');
   });
 
@@ -135,6 +136,7 @@ describe('handleUserCommand', () => {
 
   it('supports /models and /search', () => {
     expect(handleUserCommand('/models', context).queryModels).toBe(true);
+    expect(handleUserCommand('/skills', context).querySkills).toBe(true);
     expect(handleUserCommand('/search', context).querySearch).toBe(true);
     expect(handleUserCommand('/search on', context).setSearchEnabled).toBe(true);
     expect(handleUserCommand('/search off', context).setSearchEnabled).toBe(false);
