@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { installGatewayBrowserSkill, syncManagedGlobalSkills } from '../src/services/gateway-browser-skill.js';
+import { installGatewayBrowserSkill, renderGatewayBrowserSkill, syncManagedGlobalSkills } from '../src/services/gateway-browser-skill.js';
 
 describe('gateway-browser-skill', () => {
   it('installs gateway browser skill in workspace local skills', () => {
@@ -14,6 +14,16 @@ describe('gateway-browser-skill', () => {
     const skillFile = path.join(dir, '.codex', 'skills', 'gateway-browser', 'SKILL.md');
     expect(fs.existsSync(skillFile)).toBe(true);
     expect(fs.readFileSync(skillFile, 'utf8')).toContain('name: gateway-browser');
+  });
+
+  it('renders browser workflow with evidence and safety rules', () => {
+    const skill = renderGatewayBrowserSkill();
+
+    expect(skill).toContain('Read current page state with `browser_snapshot` before deciding the next action.');
+    expect(skill).toContain('refs are not stable across navigations');
+    expect(skill).toContain('use screenshot/console/network tools to collect evidence');
+    expect(skill).toContain('inspect console/network before retrying');
+    expect(skill).toContain('cookies, and storage as sensitive data');
   });
 
   it('syncs managed global skills and removes legacy skill dirs', () => {
