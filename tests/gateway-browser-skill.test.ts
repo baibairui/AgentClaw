@@ -22,6 +22,9 @@ describe('gateway-browser-skill', () => {
     expect(skill).toContain('Read current page state with `browser_snapshot` before deciding the next action.');
     expect(skill).toContain('refs are not stable across navigations');
     expect(skill).toContain('use screenshot/console/network tools to collect evidence');
+    expect(skill).toContain('Report format:');
+    expect(skill).toContain('Evidence: snapshot/screenshot/console/network findings');
+    expect(skill).toContain('Next step: the next minimal action or the exact user takeover request.');
     expect(skill).toContain('capture evidence and confirm intent');
     expect(skill).toContain('capture a screenshot instead of guessing from stale refs');
     expect(skill).toContain('inspect console/network before retrying');
