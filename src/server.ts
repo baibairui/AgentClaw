@@ -42,7 +42,7 @@ log.info('服务启动初始化...', {
   commandTimeoutMaxMs: config.commandTimeoutMaxMs,
   commandTimeoutPerCharMs: config.commandTimeoutPerCharMs,
   browserMcpEnabled: config.browserMcpEnabled,
-  browserMcpUrl: config.browserMcpUrl ?? '(local auto)',
+  browserMcpUrl: '(gateway-owned local only)',
   browserMcpPort: config.browserMcpPort,
   browserProfileDir: config.browserMcpProfileDir ?? '(default)',
   runnerEnabled: config.runnerEnabled,
@@ -68,7 +68,6 @@ const browserManager = new BrowserManager({
 });
 const browserMcpRuntime = resolveBrowserMcpRuntime({
   enabled: config.browserMcpEnabled,
-  url: config.browserMcpUrl,
   port: config.browserMcpPort,
 });
 const activeBrowserMcpUrl = await ensureBrowserMcpUrl(browserMcpRuntime, browserManager);

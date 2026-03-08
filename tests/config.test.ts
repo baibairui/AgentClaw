@@ -38,6 +38,17 @@ describe('config browser mcp defaults', () => {
     expect(config.browserMcpEnabled).toBe(true);
   });
 
+  it('ignores external browser mcp url overrides', async () => {
+    const config = await loadConfigWithEnv({
+      WECOM_ENABLED: 'false',
+      FEISHU_ENABLED: 'false',
+      CODEX_SANDBOX: 'full-auto',
+      BROWSER_MCP_URL: 'http://127.0.0.1:9999/mcp',
+    });
+
+    expect('browserMcpUrl' in config).toBe(false);
+  });
+
   it('allows explicitly disabling browser mcp', async () => {
     const config = await loadConfigWithEnv({
       WECOM_ENABLED: 'false',

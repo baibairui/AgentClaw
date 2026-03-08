@@ -26,17 +26,15 @@ export interface BrowserMcpRuntime {
 
 export function resolveBrowserMcpRuntime(input: {
   enabled: boolean;
-  url?: string;
   port: number;
 }): BrowserMcpRuntime | undefined {
   if (!input.enabled) {
     return undefined;
   }
-  const resolvedUrl = input.url?.trim() || `http://127.0.0.1:${input.port}/mcp`;
   return {
-    url: resolvedUrl,
+    url: `http://127.0.0.1:${input.port}/mcp`,
     port: input.port,
-    shouldAutoStart: !input.url?.trim(),
+    shouldAutoStart: true,
   };
 }
 
