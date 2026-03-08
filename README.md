@@ -144,7 +144,6 @@ CODEX_SEARCH=false
 - `RUNNER_ENABLED`：是否允许网关实际调用 Codex
 - `CODEX_SEARCH`：默认是否开启联网搜索
 - `BROWSER_MCP_ENABLED`：默认开启；只有你明确不需要浏览器自动化时，才设为 `false`
-- `BROWSER_MCP_URL`：可选。如果你已有外部 browser MCP，可直接填它的 URL
 - `BROWSER_MCP_PORT`：可选。gateway 本地自启动内置 browser MCP 时使用的端口，默认 `8931`
 - `BROWSER_MCP_PROFILE_DIR`：可选，共享浏览器登录态目录；默认是 `.data/browser/profile`
 
@@ -152,7 +151,7 @@ CODEX_SEARCH=false
 
 - 默认情况下，gateway 会在第一次需要浏览器工具时懒启动内置 browser MCP 和可见 Chrome 窗口
 - 浏览器由 gateway 自己持有共享 context 和持久 profile，所以浏览器窗口不会随着单次 Codex run 结束而关闭
-- 运行时注入使用独立的 MCP server 名 `gateway_browser`，避免和用户自己 `~/.codex/config.toml` 里的浏览器配置发生合并冲突
+- 运行时只注入 gateway 内置的 `gateway_browser` MCP，外部 browser MCP URL 覆盖不再支持，因此不会受用户自己 `~/.codex/config.toml` 里的浏览器配置影响
 - 所有 agent 默认共用同一套浏览器 profile，所以登录态可以复用
 - 浏览器窗口只有在手动关闭它或 gateway 退出时才会结束
 - 录屏工具已支持：`browser_start_recording` 开始录制、`browser_stop_recording` 停止并产出本地 mp4；宿主机需安装 `ffmpeg`

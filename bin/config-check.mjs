@@ -51,6 +51,10 @@ if (runnerEnabled && missingIfEmpty('CODEX_WORKDIR')) {
   warnings.push('CODEX_WORKDIR 未配置，将使用当前目录。建议配置为你的项目绝对路径。');
 }
 
+if (!missingIfEmpty('BROWSER_MCP_URL')) {
+  warnings.push('BROWSER_MCP_URL 已废弃且会被忽略；gateway 现在只允许使用内置浏览器 MCP。');
+}
+
 if (!commandExists(process.env.CODEX_BIN || 'codex')) {
   issues.push(`未找到 Codex 可执行文件：${process.env.CODEX_BIN || 'codex'}。`);
 }

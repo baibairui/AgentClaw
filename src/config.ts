@@ -96,7 +96,6 @@ export const config = {
   codexSandbox: codexSandboxMode(),
   browserMcpEnabled: process.env.BROWSER_MCP_ENABLED !== 'false',
   browserMcpProfileDir: optionalStringUndefined('BROWSER_MCP_PROFILE_DIR'),
-  browserMcpUrl: optionalStringUndefined('BROWSER_MCP_URL'),
   browserMcpPort: optionalNumber('BROWSER_MCP_PORT', 8931),
   runnerEnabled: process.env.RUNNER_ENABLED !== 'false',
   memoryStewardEnabled: process.env.MEMORY_STEWARD_ENABLED !== 'false',
