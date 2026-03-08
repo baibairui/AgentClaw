@@ -129,4 +129,18 @@ describe('WeComApi token cache', () => {
     await expect(api.sendText('alice', 'hello')).rejects.toBeInstanceOf(Error);
     expect(sendCalls).toBe(3);
   });
+
+  it('rejects empty text before any api call', async () => {
+    global.fetch = vi.fn() as typeof fetch;
+
+    const api = new WeComApi({
+      corpId: 'corp-id',
+      secret: 'secret',
+      agentId: 1000002,
+      timeoutMs: 10,
+    });
+
+    await expect(api.sendText('alice', '   ')).rejects.toThrow('wecom send failed: text content is required');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });

@@ -24,6 +24,7 @@ interface AppDeps {
     userId: string;
     content: string;
     sourceMessageId?: string;
+    allowReply?: boolean;
   }) => Promise<void>;
 }
 
@@ -79,6 +80,7 @@ export function dispatchFeishuMessageReceiveEvent(
     userId: openId,
     content: contentWithMeta,
     sourceMessageId: messageId,
+    allowReply: true,
   }).catch((err) => {
     log.error('飞书事件异步处理失败', err);
   });
@@ -97,18 +99,18 @@ export function dispatchFeishuCardActionEvent(
   const action = (event.action ?? {}) as Record<string, unknown>;
   const value = (action.value ?? {}) as Record<string, unknown>;
   const command = typeof value.gateway_cmd === 'string' ? value.gateway_cmd.trim() : '';
-  const openMessageId = typeof event.open_message_id === 'string' ? event.open_message_id : undefined;
   if (!openId || !command) {
     return 'ignored';
   }
   if (!allowList(deps.allowFrom, openId)) {
     return 'success';
   }
+  // 卡片点击回调里的 open_message_id 不等价于普通消息的 reply message_id。
+  // 继续走 reply 接口会触发飞书卡片相关错误码，因此这里统一直接发新消息。
   deps.handleText({
     channel: 'feishu',
     userId: openId,
     content: command,
-    sourceMessageId: openMessageId,
   }).catch((err) => {
     log.error('飞书卡片回调异步处理失败', err);
   });

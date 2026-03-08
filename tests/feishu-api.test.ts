@@ -182,6 +182,67 @@ describe('FeishuApi', () => {
     });
   });
 
+  it('normalizes uppercase msgType before sending', async () => {
+    const createCalls: Array<{ msg_type: string; content: string }> = [];
+    const sdkClient = {
+      im: {
+        message: {
+          create: vi.fn(async (payload: { data: { msg_type: string; content: string } }) => {
+            createCalls.push(payload.data);
+            return { code: 0, msg: 'ok' };
+          }),
+          reply: vi.fn(),
+        },
+        image: { create: vi.fn() },
+        file: { create: vi.fn() },
+        messageResource: { get: vi.fn() },
+      },
+    };
+
+    const api = new FeishuApi({
+      appId: 'cli_xxx',
+      appSecret: 'yyy',
+      timeoutMs: 2000,
+      sdkClient,
+    });
+
+    await api.sendMessage('ou_a', {
+      msgType: 'TEXT',
+      content: 'hello',
+    });
+
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]?.msg_type).toBe('text');
+    expect(createCalls[0]?.content).toBe(JSON.stringify({ text: 'hello' }));
+  });
+
+  it('rejects empty text content before calling sdk', async () => {
+    const sdkClient = {
+      im: {
+        message: {
+          create: vi.fn(),
+          reply: vi.fn(),
+        },
+        image: { create: vi.fn() },
+        file: { create: vi.fn() },
+        messageResource: { get: vi.fn() },
+      },
+    };
+
+    const api = new FeishuApi({
+      appId: 'cli_xxx',
+      appSecret: 'yyy',
+      timeoutMs: 2000,
+      sdkClient,
+    });
+
+    await expect(api.sendMessage('ou_a', {
+      msgType: 'text',
+      content: '   ',
+    })).rejects.toThrow('feishu send failed: text content is required');
+    expect(sdkClient.im.message.create).not.toHaveBeenCalled();
+  });
+
   it('uploads local image path before sending image message', async () => {
     const imageCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'feishu-upload-image-'));
     const localImagePath = path.join(imageCacheDir, 'sample.png');

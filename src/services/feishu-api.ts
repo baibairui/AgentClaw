@@ -175,7 +175,8 @@ export class FeishuApi {
   }
 
   async sendText(openId: string, content: string, options?: { replyToMessageId?: string }): Promise<string | undefined> {
-    const chunks = splitFeishuTextByUtf8Bytes(content);
+    const textContent = requireNonEmptyText(content, 'feishu send failed: text content is required');
+    const chunks = splitFeishuTextByUtf8Bytes(textContent);
     let lastMessageId: string | undefined;
     for (const chunk of chunks) {
       lastMessageId = await this.sendSingleMessage(openId, {
@@ -188,13 +189,16 @@ export class FeishuApi {
   }
 
   async sendMessage(openId: string, message: FeishuOutgoingMessage): Promise<string | undefined> {
-    const msgType = message.msgType.trim();
+    const msgType = message.msgType.trim().toLowerCase();
     if (!msgType) {
       throw new Error('feishu send failed: msgType is required');
     }
 
     if (msgType === 'text') {
-      const textContent = extractTextContent(message.content);
+      const textContent = requireNonEmptyText(
+        extractTextContent(message.content),
+        'feishu send failed: text content is required',
+      );
       const chunks = splitFeishuTextByUtf8Bytes(textContent);
       let lastMessageId: string | undefined;
       for (const chunk of chunks) {
@@ -207,7 +211,10 @@ export class FeishuApi {
       return lastMessageId;
     }
 
-    return this.sendSingleMessage(openId, message);
+    return this.sendSingleMessage(openId, {
+      ...message,
+      msgType,
+    });
   }
 
   async updateMessage(messageId: string, msgType: 'text' | 'post', content: Record<string, unknown> | string): Promise<void> {
@@ -564,6 +571,13 @@ function extractTextContent(content: FeishuOutgoingMessage['content']): string {
   }
   const text = content.text;
   return typeof text === 'string' ? text : '';
+}
+
+function requireNonEmptyText(text: string, errorMessage: string): string {
+  if (!text.trim()) {
+    throw new Error(errorMessage);
+  }
+  return text;
 }
 
 function resolveSimpleContent(msgType: string, value: string): Record<string, string> {
