@@ -25,6 +25,10 @@ describe('gateway-browser-skill', () => {
     expect(skill).toContain('Report format:');
     expect(skill).toContain('Evidence: snapshot/screenshot/console/network findings');
     expect(skill).toContain('Next step: the next minimal action or the exact user takeover request.');
+    expect(skill).toContain('Stop conditions:');
+    expect(skill).toContain('multiple similar targets exist');
+    expect(skill).toContain('upload files, or submit content the user did not explicitly approve');
+    expect(skill).toContain('report the last confirmed page state');
     expect(skill).toContain('capture evidence and confirm intent');
     expect(skill).toContain('capture a screenshot instead of guessing from stale refs');
     expect(skill).toContain('inspect console/network before retrying');
