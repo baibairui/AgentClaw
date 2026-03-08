@@ -43,6 +43,19 @@ function qs(val: unknown): string {
   return typeof val === 'string' ? val : '';
 }
 
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function clipText(input: string, max = 200): string {
+  return input.length <= max ? input : `${input.slice(0, max)}...`;
+}
+
 export function dispatchFeishuMessageReceiveEvent(
   deps: FeishuEventDeps,
   event: Record<string, unknown>,
@@ -106,11 +119,24 @@ export function dispatchFeishuCardActionEvent(
   const value = (action.value ?? {}) as Record<string, unknown>;
   const context = (event.context ?? {}) as Record<string, unknown>;
   const chatId = typeof context.chat_id === 'string' ? context.chat_id : '';
-  const command = typeof value.gateway_cmd === 'string' ? value.gateway_cmd.trim() : '';
+  const command = firstNonEmptyString(value.gateway_cmd, value.command, value.text) ?? '';
+  log.info('飞书卡片动作入站', {
+    openId,
+    chatId: chatId || '(empty)',
+    hasGatewayCmd: typeof value.gateway_cmd === 'string',
+    hasCommand: typeof value.command === 'string',
+    hasText: typeof value.text === 'string',
+    commandPreview: clipText(command),
+  });
   if (!openId || !command) {
+    log.warn('飞书卡片动作忽略：缺少 openId 或 command', {
+      openId: openId || '(empty)',
+      command: command || '(empty)',
+    });
     return 'ignored';
   }
   if (!allowList(deps.allowFrom, openId)) {
+    log.warn('飞书卡片动作忽略：用户不在 allow list', { openId });
     return 'success';
   }
   // 卡片点击回调里的 open_message_id 不等价于普通消息的 reply message_id。
@@ -123,6 +149,11 @@ export function dispatchFeishuCardActionEvent(
     replyTargetType: chatId ? 'chat_id' : 'open_id',
   }).catch((err) => {
     log.error('飞书卡片回调异步处理失败', err);
+  });
+  log.info('飞书卡片动作已转发到 handleText', {
+    openId,
+    replyTargetId: chatId || openId,
+    replyTargetType: chatId ? 'chat_id' : 'open_id',
   });
   return 'success';
 }
@@ -342,20 +373,33 @@ export function createApp(deps: AppDeps) {
         const token = typeof header.token === 'string'
           ? header.token
           : (typeof body.token === 'string' ? body.token : '');
+        const eventType = typeof header.event_type === 'string' ? header.event_type : '';
+        log.info('POST /feishu/callback 收到请求', {
+          bodyType: bodyType || '(empty)',
+          eventType: eventType || '(empty)',
+          hasToken: !!token,
+          topLevelKeys: Object.keys(body).slice(0, 20),
+        });
 
         // 对所有事件类型统一做 token 校验，避免 url_verification 绕过校验。
         if (deps.feishuVerificationToken && token !== deps.feishuVerificationToken) {
+          log.warn('POST /feishu/callback token 校验失败', {
+            expectedConfigured: true,
+            eventType: eventType || '(empty)',
+          });
           res.status(403).json({ code: 403, msg: 'token mismatch' });
           return;
         }
 
         if (bodyType === 'url_verification') {
           const challenge = typeof body.challenge === 'string' ? body.challenge : '';
+          log.info('POST /feishu/callback url_verification 通过', {
+            challengePreview: clipText(challenge, 60),
+          });
           res.json({ challenge });
           return;
         }
 
-        const eventType = typeof header.event_type === 'string' ? header.event_type : '';
         if (eventType === 'card.action.trigger') {
           const event = (body.event ?? {}) as Record<string, unknown>;
           dispatchFeishuCardActionEvent({
@@ -365,10 +409,12 @@ export function createApp(deps: AppDeps) {
           }, event);
           // 飞书卡片动作回调不能复用普通事件回执格式（code/msg）。
           // 这里返回空对象，表示卡片点击已被服务端接收，由异步消息结果继续反馈给用户。
+          log.info('POST /feishu/callback card.action.trigger 返回 {}');
           res.json({});
           return;
         }
         if (eventType !== 'im.message.receive_v1') {
+          log.info('POST /feishu/callback 忽略非消息事件', { eventType });
           res.json({ code: 0, msg: 'ignored' });
           return;
         }
@@ -379,9 +425,11 @@ export function createApp(deps: AppDeps) {
           isDuplicateMessage: deps.isDuplicateMessage,
           handleText: deps.handleText,
         }, event);
+        log.info('POST /feishu/callback im.message.receive_v1 处理完成', { result });
         res.json({ code: 0, msg: result });
       } catch (error) {
         log.error('POST /feishu/callback 回调处理异常', error);
+        log.warn('POST /feishu/callback 异常兜底返回 success');
         res.json({ code: 0, msg: 'success' });
       }
     });

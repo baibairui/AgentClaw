@@ -664,6 +664,8 @@ function buildCommandButtonRows(buttons: FeishuCardButton[]): Array<Record<strin
         },
         value: {
           gateway_cmd: item.cmd,
+          command: item.cmd,
+          text: item.cmd,
         },
       })),
     });
@@ -736,6 +738,8 @@ function buildFeishuInteractiveCommandCard(commandName: string, text: string): R
           },
           value: {
             gateway_cmd: item.cmd,
+            command: item.cmd,
+            text: item.cmd,
           },
         })),
       },

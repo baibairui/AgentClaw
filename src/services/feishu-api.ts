@@ -360,9 +360,21 @@ export class FeishuApi {
   ): Promise<string | undefined> {
     let lastError: Error | undefined;
     let lastMessageId: string | undefined;
+    log.info('feishu send start', {
+      msgType: message.msgType,
+      receiveIdType: target.receiveIdType,
+      receiveId: target.receiveId,
+      hasReplyToMessageId: !!message.replyToMessageId,
+      replyToMessageId: message.replyToMessageId ?? '(none)',
+    });
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const content = await this.resolveOutgoingContentPayload(message.msgType, message.content);
+        log.debug('feishu send payload resolved', {
+          attempt,
+          msgType: message.msgType,
+          contentPreview: clipText(content),
+        });
         if (message.replyToMessageId) {
           try {
             const response = await this.sdkClient.im.message.reply({
@@ -373,6 +385,12 @@ export class FeishuApi {
                 reply_in_thread: false,
                 uuid: randomUUID(),
               },
+            });
+            log.info('feishu reply response', {
+              attempt,
+              code: response.code ?? null,
+              msg: response.msg ?? null,
+              messageId: response.data?.message_id ?? null,
             });
             if (response.code === 0) {
               lastMessageId = response.data?.message_id;
@@ -399,6 +417,14 @@ export class FeishuApi {
             uuid: randomUUID(),
           },
         });
+        log.info('feishu create response', {
+          attempt,
+          code: response.code ?? null,
+          msg: response.msg ?? null,
+          messageId: response.data?.message_id ?? null,
+          receiveIdType: target.receiveIdType,
+          receiveId: target.receiveId,
+        });
         if (response.code === 0) {
           lastMessageId = response.data?.message_id;
           return lastMessageId;
@@ -406,6 +432,14 @@ export class FeishuApi {
         lastError = new Error(`feishu send failed: create ${response.code ?? 'unknown'} ${response.msg ?? 'unknown'}`);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        log.warn('feishu send exception', {
+          attempt,
+          msgType: message.msgType,
+          receiveIdType: target.receiveIdType,
+          receiveId: target.receiveId,
+          error: lastError.message,
+          name: lastError.name,
+        });
         if (isAbortError(lastError) && !this.retryOnTimeout) {
           throw lastError;
         }
@@ -416,6 +450,13 @@ export class FeishuApi {
       }
     }
 
+    log.error('feishu send exhausted retries', {
+      msgType: message.msgType,
+      receiveIdType: target.receiveIdType,
+      receiveId: target.receiveId,
+      replyToMessageId: message.replyToMessageId ?? '(none)',
+      error: lastError?.message ?? 'unknown',
+    });
     throw lastError ?? new Error('feishu send failed: unknown');
   }
 
@@ -860,7 +901,7 @@ function sanitizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60) || 'image';
 }
 
-function clipText(text: string, maxLength: number): string {
+function clipText(text: string, maxLength = 200): string {
   if (text.length <= maxLength) {
     return text;
   }
