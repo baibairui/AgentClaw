@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('WeComApi');
@@ -82,13 +85,14 @@ export class WeComApi {
   }
 
   async sendText(toUser: string, content: string): Promise<void> {
+    const textContent = requireNonEmptyText(content, 'wecom send failed: text content is required');
     log.info('发送文本消息', {
       toUser,
-      contentLength: content.length,
-      contentPreview: content.substring(0, 200),
+      contentLength: textContent.length,
+      contentPreview: textContent.substring(0, 200),
     });
 
-    const chunks = splitTextByUtf8Bytes(content);
+    const chunks = splitTextByUtf8Bytes(textContent);
     log.debug('消息分片结果', {
       toUser,
       chunkCount: chunks.length,
@@ -106,7 +110,10 @@ export class WeComApi {
       throw new Error('wecom send failed: msgType is required');
     }
     if (msgType === 'text') {
-      const text = extractWeComText(message.content);
+      const text = requireNonEmptyText(
+        extractWeComText(message.content),
+        'wecom send failed: text content is required',
+      );
       await this.sendText(toUser, text);
       return;
     }
@@ -115,10 +122,45 @@ export class WeComApi {
       touser: toUser,
       msgtype: msgType,
       agentid: this.agentId,
-      ...resolveWeComPayload(msgType, message.content),
+      ...await this.resolveWeComPayload(msgType, message.content),
       safe: 0,
     };
     await this.sendRequest(toUser, requestBody);
+  }
+
+  private async resolveWeComPayload(
+    msgType: string,
+    content: WeComOutgoingMessage['content'],
+  ): Promise<Record<string, unknown>> {
+    if (typeof content === 'string') {
+      if (msgType === 'image' || msgType === 'voice' || msgType === 'video' || msgType === 'file') {
+        return { [msgType]: { media_id: content } };
+      }
+      if (msgType === 'markdown') {
+        return { markdown: { content } };
+      }
+      return { text: { content } };
+    }
+
+    if (msgType === 'image' || msgType === 'voice' || msgType === 'video' || msgType === 'file') {
+      const mediaId = firstString(content.media_id);
+      if (mediaId) {
+        return { [msgType]: { media_id: mediaId } };
+      }
+      const localPath = resolveWeComLocalUploadPath(msgType, content);
+      if (localPath) {
+        const uploadedMediaId = await this.uploadMediaFromPath(msgType, localPath);
+        return { [msgType]: { media_id: uploadedMediaId } };
+      }
+    }
+
+    if (msgType === 'markdown') {
+      if (typeof content.content === 'string') {
+        return { markdown: { content: content.content } };
+      }
+    }
+
+    return { [msgType]: content };
   }
 
   private async sendSingleText(toUser: string, content: string): Promise<void> {
@@ -265,6 +307,58 @@ export class WeComApi {
     return this.tokenCache.value;
   }
 
+  private async uploadMediaFromPath(
+    msgType: 'image' | 'voice' | 'video' | 'file' | string,
+    localPath: string,
+  ): Promise<string> {
+    const normalizedPath = validateLocalPath(localPath);
+    const uploadType = normalizeWeComUploadType(msgType);
+    let lastError: Error | undefined;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const accessToken = await this.getAccessToken();
+        const form = new FormData();
+        form.append(
+          'media',
+          new Blob([fs.readFileSync(normalizedPath)]),
+          path.basename(normalizedPath),
+        );
+
+        const response = await this.fetchWithTimeout(
+          `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${accessToken}&type=${uploadType}`,
+          {
+            method: 'POST',
+            body: form,
+          },
+        );
+
+        const body = (await response.json()) as { errcode?: number; errmsg?: string; media_id?: string };
+        if (response.ok && body.errcode === 0 && body.media_id) {
+          return body.media_id;
+        }
+
+        if (body.errcode === 40014 || body.errcode === 42001) {
+          this.tokenCache = undefined;
+        }
+        lastError = new Error(
+          `wecom media upload failed: ${response.status} ${body.errcode ?? 'unknown'} ${body.errmsg ?? 'unknown'}`,
+        );
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (isAbortError(lastError) && !this.retryOnTimeout) {
+          throw lastError;
+        }
+      }
+
+      if (attempt < 3) {
+        await sleep(200 * attempt);
+      }
+    }
+
+    throw lastError ?? new Error('wecom media upload failed: unknown');
+  }
+
   private async fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -298,29 +392,49 @@ function extractWeComText(content: WeComOutgoingMessage['content']): string {
   return '';
 }
 
-function resolveWeComPayload(
-  msgType: string,
-  content: WeComOutgoingMessage['content'],
-): Record<string, unknown> {
-  if (typeof content === 'string') {
-    if (msgType === 'image' || msgType === 'voice' || msgType === 'video' || msgType === 'file') {
-      return { [msgType]: { media_id: content } };
-    }
-    if (msgType === 'markdown') {
-      return { markdown: { content } };
-    }
-    return { text: { content } };
+function requireNonEmptyText(text: string, errorMessage: string): string {
+  if (!text.trim()) {
+    throw new Error(errorMessage);
   }
+  return text;
+}
+
+function firstString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function resolveWeComLocalUploadPath(msgType: string, content: Record<string, unknown>): string | undefined {
+  if (msgType === 'image') {
+    return firstString(content.local_image_path) ?? firstString(content.local_file_path);
+  }
+  if (msgType === 'voice') {
+    return firstString(content.local_audio_path) ?? firstString(content.local_file_path);
+  }
+  if (msgType === 'video') {
+    return firstString(content.local_media_path) ?? firstString(content.local_file_path);
+  }
+  if (msgType === 'file') {
+    return firstString(content.local_file_path)
+      ?? firstString(content.local_media_path)
+      ?? firstString(content.local_audio_path);
+  }
+  return undefined;
+}
+
+function validateLocalPath(localPath: string): string {
+  const normalizedPath = localPath.trim();
+  if (!normalizedPath) {
+    throw new Error('wecom media upload failed: local path is required');
+  }
+  if (!fs.existsSync(normalizedPath)) {
+    throw new Error(`wecom media upload failed: local path not found: ${normalizedPath}`);
+  }
+  return normalizedPath;
+}
+
+function normalizeWeComUploadType(msgType: string): 'image' | 'voice' | 'video' | 'file' {
   if (msgType === 'image' || msgType === 'voice' || msgType === 'video' || msgType === 'file') {
-    const mediaId = content.media_id;
-    if (typeof mediaId === 'string') {
-      return { [msgType]: { media_id: mediaId } };
-    }
+    return msgType;
   }
-  if (msgType === 'markdown') {
-    if (typeof content.content === 'string') {
-      return { markdown: { content: content.content } };
-    }
-  }
-  return { [msgType]: content };
+  throw new Error(`wecom media upload failed: unsupported msgType ${msgType}`);
 }

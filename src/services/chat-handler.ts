@@ -280,7 +280,7 @@ function buildWeComOutboundMessageProtocolPrompt(userPrompt: string): string {
     '4. JSON 格式必须为：{"__gateway_message__":true,"msg_type":"<type>","content":<object|string>}。',
     '5. 企微常用 msg_type：text、markdown、image、voice、video、file。',
     '6. 若用户只是发来图片/文件并让你分析，不算“要求回发非文本”，此时必须回复普通文本分析结果。',
-    '7. 企微非文本消息通常需要现成的 media_id；如果没有明确可用的 media_id，则不要擅自输出非文本 JSON。',
+    '7. 若用户输入中包含 local_image_path/local_file_path/local_audio_path/local_media_path，可先读取对应本地文件并给出分析结果；若明确需要回发企微非文本消息，且你已经拿到本地路径，可在 JSON content 中直接提供这些路径，网关会先上传再发送。',
     '',
     '用户输入如下：',
     userPrompt,

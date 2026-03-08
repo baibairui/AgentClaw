@@ -18,6 +18,7 @@ async function startTestServer(options?: {
     userId: string;
     content: string;
     sourceMessageId?: string;
+    allowReply?: boolean;
   }) => Promise<void>;
 }) {
   const app = createApp({
@@ -164,6 +165,7 @@ describe('createApp feishu callback', () => {
       userId: 'ou_1',
       content: '[飞书图片] image_key=img_1\nmessage_id=om_1',
       sourceMessageId: 'om_1',
+      allowReply: true,
     });
   });
 
@@ -207,7 +209,6 @@ describe('createApp feishu callback', () => {
       channel: 'feishu',
       userId: 'ou_card_1',
       content: '/skills global',
-      sourceMessageId: 'om_card_1',
     });
   });
 });
@@ -235,6 +236,7 @@ describe('dispatchFeishuMessageReceiveEvent', () => {
       userId: 'ou_ws_1',
       content: 'hello from ws',
       sourceMessageId: 'om_ws_1',
+      allowReply: true,
     });
   });
 });
@@ -264,7 +266,6 @@ describe('dispatchFeishuCardActionEvent', () => {
       channel: 'feishu',
       userId: 'ou_2',
       content: '/agents',
-      sourceMessageId: 'om_2',
     });
   });
 });

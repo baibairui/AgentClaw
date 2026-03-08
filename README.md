@@ -180,6 +180,18 @@ FEISHU_VERIFICATION_TOKEN=你的校验Token
 
 完整配置模板见 [.env.example](./.env.example)。
 
+### 企业微信能力说明（当前实现）
+
+企业微信消息类型支持：
+
+- 入站：`text`、`image`、`voice`、`video`、`file`
+- 出站：`text`、`markdown`、`image`、`voice`、`video`、`file`
+
+附件与本地路径：
+
+- 入站非文本消息会把 `media_id` 等关键信息注入给 Codex
+- 当模型明确回发企微非文本且提供 `local_image_path/local_file_path/local_audio_path/local_media_path` 时，网关会先上传素材，再发送对应消息类型
+
 如果你希望逐行引导填写，可以直接运行：
 
 ```bash

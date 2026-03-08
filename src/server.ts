@@ -150,7 +150,7 @@ if (wecomCrypto) {
 
 const userTaskQueue = new Map<string, Promise<void>>();
 const outboundSendQueue = new Map<string, Promise<void>>();
-const inboundReplyContext = new Map<string, { messageId?: string }>();
+const inboundReplyContext = new Map<string, { messageId?: string; allowReply: boolean }>();
 
 interface InboundEnrichResult {
   content: string;
@@ -331,6 +331,7 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
   const structured = parseGatewayStructuredMessage(content);
   await enqueueOutboundSend(channel, userId, async () => {
     const replyContext = inboundReplyContext.get(`${channel}:${userId}`);
+    const replyToMessageId = replyContext?.allowReply ? replyContext.messageId : undefined;
     if (structured) {
       if (!isGatewayMessageTypeSupported(channel, structured.msg_type)) {
         const message = `❌ 不支持的 ${channel === 'feishu' ? '飞书' : '企微'} msg_type：${structured.msg_type}`;
@@ -345,7 +346,7 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
           throw new Error('feishu api not configured');
         }
         await feishuApi.sendText(userId, message, {
-          replyToMessageId: replyContext?.messageId,
+          replyToMessageId,
         });
         return;
       }
@@ -365,7 +366,7 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
       await feishuApi.sendMessage(userId, {
         msgType: structured.msg_type,
         content: structured.content,
-        replyToMessageId: replyContext?.messageId,
+        replyToMessageId,
       });
       return;
     }
@@ -381,7 +382,7 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
       throw new Error('feishu api not configured');
     }
     await feishuApi.sendText(userId, content, {
-      replyToMessageId: replyContext?.messageId,
+      replyToMessageId,
     });
   });
 }
@@ -487,6 +488,7 @@ async function appDepsHandleText(input: {
   userId: string;
   content: string;
   sourceMessageId?: string;
+  allowReply?: boolean;
 }): Promise<void> {
   const enrichResult = await enrichInboundContent(input.channel, input.content);
   if (enrichResult.attachmentRequired && !enrichResult.attachmentDownloaded) {
@@ -502,6 +504,7 @@ async function appDepsHandleText(input: {
     const contextKey = `${input.channel}:${input.userId}`;
     inboundReplyContext.set(contextKey, {
       messageId: input.channel === 'feishu' ? input.sourceMessageId : undefined,
+      allowReply: input.channel === 'feishu' ? input.allowReply === true : false,
     });
     try {
       await handleChatText({ channel: input.channel, userId: input.userId, content: enrichResult.content });
