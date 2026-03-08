@@ -1242,6 +1242,8 @@ describe('createChatHandler', () => {
     expect(prompt).toContain('简单一句话优先 text；多段说明或列表优先 markdown');
     expect(prompt).toContain('若是在汇报浏览器执行中的阶段性进度、阻塞原因、用户接管请求或完成态总结');
     expect(prompt).toContain('优先使用 markdown');
+    expect(prompt).toContain('浏览器人工接管触发条件包括但不限于');
+    expect(prompt).toContain('登录、验证码、扫码、支付确认、权限弹窗、高风险提交、页面目标歧义');
     expect(prompt).toContain('如果不确定该用哪种类型，优先退回 text');
     expect(prompt).not.toContain('飞书常用 msg_type');
   });
@@ -1278,6 +1280,8 @@ describe('createChatHandler', () => {
     expect(prompt).toContain('阻塞原因、风险点、待确认项');
     expect(prompt).toContain('若是在汇报浏览器任务已完成');
     expect(prompt).toContain('最终结果、产出物和后续建议');
+    expect(prompt).toContain('浏览器人工接管触发条件包括但不限于');
+    expect(prompt).toContain('登录、验证码、扫码、支付确认、权限弹窗、高风险提交、页面目标歧义');
     expect(prompt).toContain('如果不确定该用哪种类型，优先退回 text');
   });
 
