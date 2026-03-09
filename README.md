@@ -217,6 +217,12 @@ FEISHU_GROUP_REQUIRE_MENTION=true
 - `FEISHU_GROUP_REQUIRE_MENTION=true`：群聊默认要求 `@机器人` 才触发；私聊不受影响。显式设为 `false` 可恢复“群里任何消息都触发”
 - `FEISHU_DOC_BASE_URL`：可选。用于飞书官方操作 CLI 在创建 DocX 后直接返回可访问文档链接，例如 `https://你的飞书域名/docx`
 
+安装建议：
+
+- 优先使用 `codexclaw setup` 完成飞书配置
+- 配完后立刻执行 `codexclaw doctor`
+- `doctor` 会直接告诉你：当前是长连接还是 webhook、飞书凭据是否缺失、群触发策略是否开启、DocX 链接域名是否配置
+
 ### 飞书能力说明（当前实现）
 
 飞书消息类型支持：
@@ -318,6 +324,7 @@ codexclaw check
 - `codexclaw start`：生产模式启动（启动前自动配置检查）
 - `codexclaw setup`：逐行交互配置向导，自动写入 `.env`
 - `codexclaw check`：仅检查配置，不启动服务
+- `codexclaw doctor`：同 `check`，更适合作为安装自检入口
 - `codexclaw update`：一键拉取远端最新代码并完成依赖更新与构建
 - `codexclaw build`：构建 TypeScript
 - `codexclaw test`：执行测试

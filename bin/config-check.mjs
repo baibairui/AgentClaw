@@ -42,6 +42,10 @@ const wecomEnabled = asBool(process.env.WECOM_ENABLED, true);
 const feishuEnabled = asBool(process.env.FEISHU_ENABLED, false);
 const feishuLongConnection = asBool(process.env.FEISHU_LONG_CONNECTION, false);
 const runnerEnabled = asBool(process.env.RUNNER_ENABLED, true);
+const feishuDocBaseUrl = process.env.FEISHU_DOC_BASE_URL?.trim() || '';
+const feishuGroupRequireMention = asBool(process.env.FEISHU_GROUP_REQUIRE_MENTION, true);
+const feishuStartupHelpEnabled = asBool(process.env.FEISHU_STARTUP_HELP_ENABLED, false);
+const feishuStartupHelpAdminOpenId = process.env.FEISHU_STARTUP_HELP_ADMIN_OPEN_ID?.trim() || '';
 
 if (missingIfEmpty('PORT')) {
   warnings.push('PORT 未配置，将使用默认值 3000。');
@@ -86,6 +90,12 @@ if (feishuEnabled) {
   if (!feishuLongConnection && missingIfEmpty('FEISHU_VERIFICATION_TOKEN')) {
     warnings.push('当前是飞书 webhook 模式，建议配置 FEISHU_VERIFICATION_TOKEN。');
   }
+  if (!feishuDocBaseUrl) {
+    warnings.push('未配置 FEISHU_DOC_BASE_URL，后续创建飞书 DocX 时将无法直接返回可访问文档链接。');
+  }
+  if (feishuStartupHelpEnabled && !feishuStartupHelpAdminOpenId) {
+    warnings.push('FEISHU_STARTUP_HELP_ENABLED=true 但缺少 FEISHU_STARTUP_HELP_ADMIN_OPEN_ID，启动后不会给管理员推送 help。');
+  }
 }
 
 if (feishuLongConnection && !feishuEnabled) {
@@ -120,6 +130,25 @@ console.log(`- WECOM_ENABLED=${wecomEnabled}`);
 console.log(`- FEISHU_ENABLED=${feishuEnabled}`);
 console.log(`- FEISHU_LONG_CONNECTION=${feishuLongConnection}`);
 console.log(`- RUNNER_ENABLED=${runnerEnabled}`);
+
+console.log('\n飞书安装检查：');
+if (!feishuEnabled) {
+  console.log('- 状态：未启用飞书（FEISHU_ENABLED=false）');
+} else {
+  console.log(`- 接入模式：${feishuLongConnection ? '长连接（不需要公网回调地址）' : 'webhook（需要公网回调地址）'}`);
+  console.log(`- App 凭据：${missingIfEmpty('FEISHU_APP_ID') || missingIfEmpty('FEISHU_APP_SECRET') ? '缺失' : '已配置'}`);
+  console.log(`- 群聊触发：${feishuGroupRequireMention ? '要求 @ 机器人' : '群内任意消息都触发'}`);
+  console.log(`- DocX 链接域名：${feishuDocBaseUrl || '(未配置 FEISHU_DOC_BASE_URL)'}`);
+  console.log(`- 启动 help 推送：${feishuStartupHelpEnabled ? '已开启' : '未开启'}`);
+  if (feishuStartupHelpEnabled) {
+    console.log(`- help 推送管理员：${feishuStartupHelpAdminOpenId || '(未配置 FEISHU_STARTUP_HELP_ADMIN_OPEN_ID)'}`);
+  }
+  if (feishuLongConnection) {
+    console.log('- 下一步：确认飞书事件订阅已开启长连接，启动服务后观察日志中的飞书连接状态。');
+  } else {
+    console.log('- 下一步：确认飞书事件订阅回调地址可被公网访问，并校验 FEISHU_VERIFICATION_TOKEN。');
+  }
+}
 
 if (issues.length > 0) {
   process.exit(1);
