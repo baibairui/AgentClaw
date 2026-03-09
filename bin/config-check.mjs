@@ -160,6 +160,16 @@ if (!feishuEnabled) {
   }
 }
 
+if (feishuEnabled) {
+  console.log('\n验收标准：');
+  console.log(`- \`codexclaw doctor\` 没有飞书阻塞项。`);
+  console.log(`- 服务启动后，\`/healthz\` 中飞书模式显示为 ${feishuLongConnection ? 'long-connection' : 'webhook'}。`);
+  console.log(`- 在飞书私聊机器人发送一条消息，能收到正常回复。`);
+  if (!feishuGroupRequireMention) {
+    console.log('- 群聊当前配置为“不要求 @ 机器人”，上线前请确认这符合你的预期。');
+  }
+}
+
 if (warnings.length > 0) {
   console.log('\n建议项：');
   for (const warning of warnings) {
