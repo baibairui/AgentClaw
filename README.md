@@ -140,6 +140,7 @@ WEWORK_ENCODING_AES_KEY=你配置的43位EncodingAESKey
 CODEX_BIN=codex
 CODEX_WORKDIR=/你的项目绝对路径
 CODEX_SANDBOX=full-auto
+CODEX_WORKDIR_ISOLATION=off
 RUNNER_ENABLED=true
 CODEX_SEARCH=false
 ```
@@ -157,6 +158,7 @@ CODEX_SEARCH=false
 - `GATEWAY_ROOT_DIR`：可选。workspace 发布命令运行目录（默认当前进程工作目录）
 - `CODEX_AGENTS_DIR`：可选。默认使用当前项目 `.data/agents`
 - `CODEX_SANDBOX`：Codex 执行沙箱模式，通常用 `full-auto`
+- `CODEX_WORKDIR_ISOLATION`：可选。`off` 或 `bwrap`。设为 `bwrap` 时，gateway 会用 bubblewrap 把 Codex 进程限制在当前 agent 工作目录的可见文件系统视图内，并把 Codex 的运行时 HOME 放到该工作区内的 `.codex-runtime/home`
 - `RUNNER_ENABLED`：是否允许网关实际调用 Codex
 - `CODEX_SEARCH`：默认是否开启联网搜索
 - `BROWSER_MCP_ENABLED`：默认开启；只有你明确不需要浏览器自动化时，才设为 `false`
@@ -171,6 +173,17 @@ CODEX_SEARCH=false
 - 所有 agent 默认共用同一套浏览器 profile，所以登录态可以复用
 - 浏览器窗口只有在手动关闭它或 gateway 退出时才会结束
 - 录屏工具已支持：`browser_start_recording` 开始录制、`browser_stop_recording` 停止并产出本地 mp4；宿主机需安装 `ffmpeg`
+
+工作目录隔离说明：
+
+- 仅设置 `CODEX_WORKDIR` 只能决定“默认从哪个目录启动”，不能保证 agent 只能看到该目录。
+- 如果你要的是更硬的目录隔离，而又不想退回 `CODEX_SANDBOX=full-auto`，建议开启 `CODEX_WORKDIR_ISOLATION=bwrap`。
+- `bwrap` 模式要求宿主机安装 `bubblewrap`（命令通常是 `bwrap`）。
+- 在该模式下，Codex 进程只会看到：
+  - 当前 agent 工作目录（挂载为 `/workspace`，可写）
+  - 必要的系统运行时目录（只读）
+  - 工作区内的 `.codex-runtime/home` 作为 Codex 自己的 HOME
+- 这样 agent 不会再直接看到宿主机上的其他项目目录、其他 agent 工作区或 gateway 源码目录。
 
 Agent 浏览器操作指南（推荐）：
 

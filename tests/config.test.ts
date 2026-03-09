@@ -35,6 +35,7 @@ const CONFIG_ENV_KEYS = [
   'GATEWAY_ROOT_DIR',
   'CODEX_AGENTS_DIR',
   'CODEX_SANDBOX',
+  'CODEX_WORKDIR_ISOLATION',
   'BROWSER_MCP_ENABLED',
   'BROWSER_MCP_URL',
   'BROWSER_MCP_PROFILE_DIR',
@@ -114,6 +115,30 @@ describe('config browser mcp defaults', () => {
     });
 
     expect(config.browserMcpEnabled).toBe(false);
+  });
+});
+
+describe('config workdir isolation', () => {
+  it('defaults to off', async () => {
+    const config = await loadConfigWithEnv({
+      WECOM_ENABLED: 'false',
+      FEISHU_ENABLED: 'false',
+      CODEX_SANDBOX: 'none',
+      CODEX_WORKDIR_ISOLATION: undefined,
+    });
+
+    expect(config.codexWorkdirIsolation).toBe('off');
+  });
+
+  it('reads bwrap isolation mode', async () => {
+    const config = await loadConfigWithEnv({
+      WECOM_ENABLED: 'false',
+      FEISHU_ENABLED: 'false',
+      CODEX_SANDBOX: 'none',
+      CODEX_WORKDIR_ISOLATION: 'bwrap',
+    });
+
+    expect(config.codexWorkdirIsolation).toBe('bwrap');
   });
 });
 

@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { buildCodexArgs, buildCodexReviewArgs, parseCodexJsonl, summarizeCodexItem } from '../src/services/codex-runner.js';
+import { buildCodexSpawnSpec } from '../src/services/codex-bwrap.js';
 
 describe('parseCodexJsonl', () => {
   it('parses thread id and latest agent message', () => {
@@ -187,5 +190,128 @@ describe('buildCodexReviewArgs', () => {
 
     expect(args).toContain('-c');
     expect(args).toContain('mcp_servers.gateway_browser.url="http://127.0.0.1:8931/mcp"');
+  });
+});
+
+describe('buildCodexSpawnSpec', () => {
+  it('keeps direct codex spawn when isolation is off', () => {
+    const spec = buildCodexSpawnSpec({
+      codexBin: '/usr/bin/codex',
+      args: ['exec', '--json', 'hello'],
+      cwd: '/tmp/agent-direct',
+      env: { HOME: '/root', PATH: '/usr/bin' },
+      isolationMode: 'off',
+      codexHomeDir: '/tmp/instance-home',
+    });
+
+    expect(spec.command).toBe('/usr/bin/codex');
+    expect(spec.args).toEqual(['exec', '--json', 'hello']);
+    expect(spec.cwd).toBe('/tmp/agent-direct');
+    expect(spec.env.HOME).toBe('/tmp/instance-home');
+    expect(spec.env.CODEX_HOME).toBe('/tmp/instance-home');
+  });
+
+  it('wraps codex in bubblewrap and rewrites --cd to /workspace', () => {
+    const workspaceDir = '/tmp/agent-bwrap';
+    const spec = buildCodexSpawnSpec({
+      codexBin: '/usr/bin/codex',
+      args: ['--cd', workspaceDir, 'exec', '--json', 'hello'],
+      cwd: workspaceDir,
+      env: {
+        HOME: '/root',
+        PATH: '/usr/bin:/bin',
+        USER: 'root',
+        LOGNAME: 'root',
+      },
+      isolationMode: 'bwrap',
+      codexHomeDir: '/tmp/instance-home-bwrap',
+    });
+
+    expect(spec.command).toBe('bwrap');
+    expect(spec.cwd).toBe(workspaceDir);
+    expect(spec.args).toContain('/workspace');
+    expect(spec.args).toContain('--bind');
+    expect(spec.args).toContain('/workspace/.codex-runtime/home');
+    expect(spec.env.HOME).toBe(`${workspaceDir}/.codex-runtime/home`);
+    const cdIndex = spec.args.indexOf('--cd');
+    expect(cdIndex).toBeGreaterThan(-1);
+    expect(spec.args[cdIndex + 1]).toBe('/workspace');
+  });
+
+  it('preserves nested workdir paths inside the mounted workspace', () => {
+    const workspaceDir = '/tmp/agent-bwrap-nested';
+    const nestedDir = '/tmp/agent-bwrap-nested/sub/task';
+    fs.mkdirSync(nestedDir, { recursive: true });
+
+    const spec = buildCodexSpawnSpec({
+      codexBin: '/usr/bin/codex',
+      args: ['--cd', nestedDir, 'exec', '--json', 'hello'],
+      cwd: workspaceDir,
+      env: { HOME: '/root', PATH: '/usr/bin:/bin' },
+      isolationMode: 'bwrap',
+      codexHomeDir: '/tmp/instance-home-bwrap-nested',
+    });
+
+    const cdIndex = spec.args.indexOf('--cd');
+    expect(cdIndex).toBeGreaterThan(-1);
+    expect(spec.args[cdIndex + 1]).toBe('/workspace/sub/task');
+  });
+
+  it('syncs instance codex auth into workspace runtime home for bwrap runs', () => {
+    const instanceHome = '/tmp/instance-home-sync';
+    const workspaceDir = '/tmp/agent-bwrap-sync';
+    const authFile = `${instanceHome}/auth.json`;
+    const configFile = `${instanceHome}/config.toml`;
+    const runtimeAuthFile = `${workspaceDir}/.codex-runtime/home/auth.json`;
+    const runtimeConfigFile = `${workspaceDir}/.codex-runtime/home/config.toml`;
+
+    fs.mkdirSync(instanceHome, { recursive: true });
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(authFile, '{"token":"abc"}');
+    fs.writeFileSync(configFile, 'model = "gpt-5"');
+
+    buildCodexSpawnSpec({
+      codexBin: '/usr/bin/codex',
+      args: ['exec', '--json', 'hello'],
+      cwd: workspaceDir,
+      env: { HOME: '/root', PATH: '/usr/bin:/bin' },
+      isolationMode: 'bwrap',
+      codexHomeDir: instanceHome,
+    });
+
+    expect(fs.readFileSync(runtimeAuthFile, 'utf8')).toBe('{"token":"abc"}');
+    expect(fs.readFileSync(runtimeConfigFile, 'utf8')).toBe('model = "gpt-5"');
+  });
+
+  it('removes stale runtime auth files when instance codex home no longer has them', () => {
+    const instanceHome = '/tmp/instance-home-prune';
+    const workspaceDir = '/tmp/agent-bwrap-prune';
+    const runtimeAuthFile = `${workspaceDir}/.codex-runtime/home/auth.json`;
+
+    fs.mkdirSync(instanceHome, { recursive: true });
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(path.join(instanceHome, 'auth.json'), '{"token":"abc"}');
+
+    buildCodexSpawnSpec({
+      codexBin: '/usr/bin/codex',
+      args: ['exec', '--json', 'hello'],
+      cwd: workspaceDir,
+      env: { HOME: '/root', PATH: '/usr/bin:/bin' },
+      isolationMode: 'bwrap',
+      codexHomeDir: instanceHome,
+    });
+    expect(fs.existsSync(runtimeAuthFile)).toBe(true);
+
+    fs.rmSync(path.join(instanceHome, 'auth.json'), { force: true });
+    buildCodexSpawnSpec({
+      codexBin: '/usr/bin/codex',
+      args: ['exec', '--json', 'hello'],
+      cwd: workspaceDir,
+      env: { HOME: '/root', PATH: '/usr/bin:/bin' },
+      isolationMode: 'bwrap',
+      codexHomeDir: instanceHome,
+    });
+
+    expect(fs.existsSync(runtimeAuthFile)).toBe(false);
   });
 });

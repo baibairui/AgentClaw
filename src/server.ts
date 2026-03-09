@@ -30,13 +30,14 @@ import { createLogger } from './utils/logger.js';
 
 const log = createLogger('Server');
 const gatewayRootDir = resolveGatewayRootDir(config.gatewayRootDir);
-const dataDir = path.resolve(process.cwd(), '.data');
+const dataDir = path.join(gatewayRootDir, '.data');
 fs.mkdirSync(dataDir, { recursive: true });
 const agentsDir = resolveAgentsDir({
   configuredDir: config.codexAgentsDir,
   dataDir,
 });
 const codexWorkdir = resolveCodexWorkdir(config.codexWorkdir, agentsDir);
+const codexHomeDir = path.join(dataDir, 'codex-home');
 const feishuStatusSummary = buildFeishuStatusSummary({
   enabled: config.feishuEnabled,
   longConnection: config.feishuLongConnection,
@@ -62,6 +63,8 @@ log.info('服务启动初始化...', {
   browserMcpUrl: '(gateway-owned local only)',
   browserMcpPort: config.browserMcpPort,
   browserProfileDir: config.browserMcpProfileDir ?? '(default)',
+  codexWorkdirIsolation: config.codexWorkdirIsolation,
+  codexHomeDir,
   runnerEnabled: config.runnerEnabled,
   memoryStewardEnabled: config.memoryStewardEnabled,
   memoryStewardIntervalHours: config.memoryStewardIntervalHours,
@@ -88,6 +91,7 @@ const browserMcpRuntime = resolveBrowserMcpRuntime({
 });
 const activeBrowserMcpUrl = await ensureBrowserMcpUrl(browserMcpRuntime, browserManager);
 const feishuImageCacheDir = path.join(dataDir, 'feishu-images');
+fs.mkdirSync(codexHomeDir, { recursive: true });
 fs.mkdirSync(feishuImageCacheDir, { recursive: true });
 
 log.debug('Agent 工作区目录已就绪', { agentsDir });
@@ -117,6 +121,8 @@ const codexRunner = new CodexRunner({
   timeoutPerCharMs: config.commandTimeoutPerCharMs,
   browserMcpUrl: activeBrowserMcpUrl,
   sandbox: config.codexSandbox,
+  workdirIsolation: config.codexWorkdirIsolation,
+  codexHomeDir,
 });
 log.debug('CodexRunner 已初始化');
 
