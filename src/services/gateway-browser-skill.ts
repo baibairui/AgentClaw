@@ -3,6 +3,8 @@ import path from 'node:path';
 
 export const GATEWAY_BROWSER_SKILL_NAME = 'gateway-browser';
 const LEGACY_SKILL_NAMES = ['playwright-explore-website', 'react-best-practices'];
+const BROWSER_HANDOFF_TRIGGER_SUMMARY = 'login/OTP/captcha/payment confirmation';
+const BROWSER_STOP_CONDITION_SUMMARY = 'the page intent is ambiguous, multiple similar targets exist, or the expected page state did not appear';
 
 interface GlobalSkillSyncOptions {
   roots?: string[];
@@ -45,7 +47,7 @@ export function renderGatewayBrowserSkill(): string {
     '- Next step: the next minimal action or the exact user takeover request.',
     '',
     'Stop conditions:',
-    '- Stop when the page intent is ambiguous, multiple similar targets exist, or the expected page state did not appear.',
+    `- Stop when ${BROWSER_STOP_CONDITION_SUMMARY}.`,
     '- Stop when a modal, redirect, or permission prompt changes the task scope unexpectedly.',
     '- Stop when the action would send external data, upload files, or submit content the user did not explicitly approve.',
     '- When stopping, report the last confirmed page state and the exact decision needed from the user.',
@@ -54,7 +56,7 @@ export function renderGatewayBrowserSkill(): string {
     '- Reuse existing tabs whenever possible.',
     '- Prefer visible, reversible actions over hidden shortcuts.',
     '- Do not run playwright-cli or external browser scripts.',
-    '- On login/OTP/captcha/payment confirmation, request user takeover.',
+    `- On ${BROWSER_HANDOFF_TRIGGER_SUMMARY}, request user takeover.`,
     '- Before submit/delete/publish/payment or other irreversible actions, capture evidence and confirm intent if the user did not state it explicitly.',
     '- If the page is visually unclear or the user asks what is on screen, capture a screenshot instead of guessing from stale refs.',
     '- If an action fails twice, stop and ask for user decision.',
