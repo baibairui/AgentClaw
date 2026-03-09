@@ -258,6 +258,19 @@ async function main() {
         required: true,
       });
     }
+    values.FEISHU_GROUP_REQUIRE_MENTION = String(
+      await askBoolean(rl, {
+        label: '群聊是否默认要求 @ 机器人 FEISHU_GROUP_REQUIRE_MENTION',
+        defaultValue:
+          normalizeBoolean(getDefault('FEISHU_GROUP_REQUIRE_MENTION', 'true'), 'true') === 'true',
+      }),
+    );
+    values.FEISHU_DOC_BASE_URL = await askLine(rl, {
+      key: 'FEISHU_DOC_BASE_URL',
+      label: '飞书文档访问域名 FEISHU_DOC_BASE_URL（可选）',
+      defaultValue: getDefault('FEISHU_DOC_BASE_URL', ''),
+      required: false,
+    });
   }
 
   rl.close();
