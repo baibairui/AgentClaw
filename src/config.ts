@@ -60,6 +60,14 @@ function codexSandboxMode(): 'full-auto' | 'none' {
   throw new Error(`invalid CODEX_SANDBOX: ${value}`);
 }
 
+function codexWorkdirIsolationMode(): 'off' | 'bwrap' {
+  const value = process.env.CODEX_WORKDIR_ISOLATION ?? 'off';
+  if (value === 'off' || value === 'bwrap') {
+    return value;
+  }
+  throw new Error(`invalid CODEX_WORKDIR_ISOLATION: ${value}`);
+}
+
 export const config = {
   port: optionalNumber('PORT', 3000),
   wecomEnabled: process.env.WECOM_ENABLED !== 'false',
@@ -96,6 +104,7 @@ export const config = {
   codexAgentsDir: optionalStringUndefined('CODEX_AGENTS_DIR'),
   /** 'full-auto' (默认，有沙箱) 或 'none' (跳过沙箱，适合服务器) */
   codexSandbox: codexSandboxMode(),
+  codexWorkdirIsolation: codexWorkdirIsolationMode(),
   browserMcpEnabled: process.env.BROWSER_MCP_ENABLED !== 'false',
   browserMcpProfileDir: optionalStringUndefined('BROWSER_MCP_PROFILE_DIR'),
   browserMcpPort: optionalNumber('BROWSER_MCP_PORT', 8931),

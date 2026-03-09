@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '../utils/logger.js';
+import { buildCodexSpawnSpec, type CodexWorkdirIsolationMode } from './codex-bwrap.js';
 
 const log = createLogger('CodexRunner');
 const BROWSER_MCP_SERVER_NAME = 'gateway_browser';
@@ -57,6 +58,8 @@ interface CodexRunnerOptions {
   browserMcpUrl?: string;
   /** 'full-auto' (沙箱) 或 'none' (无沙箱) */
   sandbox?: 'full-auto' | 'none';
+  workdirIsolation?: CodexWorkdirIsolationMode;
+  codexHomeDir?: string;
 }
 
 const DEFAULT_TIMEOUT_MIN_MS = 180_000;
@@ -109,6 +112,8 @@ export class CodexRunner {
   private readonly timeoutPerCharMs: number;
   private readonly browserMcpUrl?: string;
   private readonly sandbox: 'full-auto' | 'none';
+  private readonly workdirIsolation: CodexWorkdirIsolationMode;
+  private readonly codexHomeDir?: string;
 
   constructor(options: CodexRunnerOptions = {}) {
     this.codexBin = options.codexBin ?? 'codex';
@@ -119,6 +124,8 @@ export class CodexRunner {
     this.timeoutPerCharMs = options.timeoutPerCharMs ?? DEFAULT_TIMEOUT_PER_CHAR_MS;
     this.browserMcpUrl = options.browserMcpUrl?.trim() || undefined;
     this.sandbox = options.sandbox ?? 'full-auto';
+    this.workdirIsolation = options.workdirIsolation ?? 'off';
+    this.codexHomeDir = options.codexHomeDir?.trim() || undefined;
     log.debug('CodexRunner 构造完成', {
       codexBin: this.codexBin,
       workdir: this.workdir,
@@ -128,6 +135,8 @@ export class CodexRunner {
       timeoutPerCharMs: this.timeoutPerCharMs,
       browserMcpUrl: this.browserMcpUrl ?? '(disabled)',
       sandbox: this.sandbox,
+      workdirIsolation: this.workdirIsolation,
+      codexHomeDir: this.codexHomeDir ?? '(system HOME)',
     });
   }
 
@@ -179,9 +188,18 @@ export class CodexRunner {
       const args = ['login', '--device-auth'];
       log.info('Codex 登录进程启动', { bin: this.codexBin, args });
 
-      const child = spawn(this.codexBin, args, {
+      const spawnSpec = buildCodexSpawnSpec({
+        codexBin: this.codexBin,
+        args,
         cwd: this.workdir,
         env: process.env,
+        isolationMode: 'off',
+        codexHomeDir: this.codexHomeDir,
+      });
+
+      const child = spawn(spawnSpec.command, spawnSpec.args, {
+        cwd: spawnSpec.cwd,
+        env: spawnSpec.env,
       });
 
       // 登录阶段最长等待 15 分钟
@@ -246,9 +264,18 @@ export class CodexRunner {
     });
 
     return new Promise<{ rawOutput: string; threadId?: string }>((resolve, reject) => {
-      const child = spawn(this.codexBin, options.args, {
+      const spawnSpec = buildCodexSpawnSpec({
+        codexBin: this.codexBin,
+        args: options.args,
         cwd: options.workdir ?? this.workdir,
         env: process.env,
+        isolationMode: this.workdirIsolation,
+        codexHomeDir: this.codexHomeDir,
+      });
+
+      const child = spawn(spawnSpec.command, spawnSpec.args, {
+        cwd: spawnSpec.cwd,
+        env: spawnSpec.env,
       });
 
       log.debug('Codex 子进程已 spawn', { pid: child.pid });
