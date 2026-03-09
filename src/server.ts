@@ -414,6 +414,9 @@ const app = createApp({
   feishuVerificationToken: config.feishuVerificationToken,
   feishuLongConnection: config.feishuLongConnection,
   feishuGroupRequireMention: config.feishuGroupRequireMention,
+  feishuDocBaseUrlConfigured: Boolean(process.env.FEISHU_DOC_BASE_URL?.trim()),
+  feishuStartupHelpEnabled: config.feishuStartupHelpEnabled,
+  feishuStartupHelpAdminConfigured: Boolean(config.feishuStartupHelpAdminOpenId),
   isDuplicateMessage: (msgId) => dedupStore.isDuplicate(msgId),
   handleText: appDepsHandleText,
 });

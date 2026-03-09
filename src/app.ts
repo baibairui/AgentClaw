@@ -16,6 +16,9 @@ interface AppDeps {
   feishuVerificationToken?: string;
   feishuLongConnection?: boolean;
   feishuGroupRequireMention?: boolean;
+  feishuDocBaseUrlConfigured?: boolean;
+  feishuStartupHelpEnabled?: boolean;
+  feishuStartupHelpAdminConfigured?: boolean;
   isDuplicateMessage: (msgId?: string) => boolean;
   /**
    * 处理文本消息，业务回复统一走主动发消息 API，无需返回值。
@@ -281,6 +284,9 @@ export function createApp(deps: AppDeps) {
           mode: deps.feishuLongConnection ? 'long-connection' : 'webhook',
           webhookEnabled: !deps.feishuLongConnection,
           groupRequireMention: deps.feishuGroupRequireMention !== false,
+          docBaseUrlConfigured: deps.feishuDocBaseUrlConfigured === true,
+          startupHelpEnabled: deps.feishuStartupHelpEnabled === true,
+          startupHelpAdminConfigured: deps.feishuStartupHelpAdminConfigured === true,
         },
       },
     });
