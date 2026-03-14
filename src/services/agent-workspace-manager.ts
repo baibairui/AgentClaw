@@ -5,6 +5,7 @@ import { installReminderToolSkill } from './reminder-tool-skill.js';
 import { installFeishuOfficialOpsSkill } from './feishu-official-ops-skill.js';
 import { installFeishuCanvasSkill } from './feishu-canvas-skill.js';
 import { installGatewayBrowserSkill } from './gateway-browser-skill.js';
+import { installGatewayDesktopSkill } from './gateway-desktop-skill.js';
 import { installSocialIntelSkills } from './social-intel-skill.js';
 
 export interface AgentWorkspaceRecord {
@@ -198,6 +199,7 @@ export class AgentWorkspaceManager {
       renderFeishuOpsPlaybook(),
     );
     installGatewayBrowserSkill(workspaceDir);
+    installGatewayDesktopSkill(workspaceDir);
     installReminderToolSkill(workspaceDir);
     installFeishuOfficialOpsSkill(workspaceDir);
     installFeishuCanvasSkill(workspaceDir);
@@ -416,6 +418,7 @@ export class AgentWorkspaceManager {
   repairWorkspaceScaffold(workspaceDir: string): void {
     const meta = readWorkspaceMeta(workspaceDir);
     installGatewayBrowserSkill(workspaceDir);
+    installGatewayDesktopSkill(workspaceDir);
     installReminderToolSkill(workspaceDir);
     installFeishuOfficialOpsSkill(workspaceDir);
     installFeishuCanvasSkill(workspaceDir);
@@ -939,6 +942,7 @@ function renderToolsBootstrap(): string {
     '',
     '优先工具通道：',
     '- 浏览器任务：只用 `gateway-browser` skill，自带脚本执行真实浏览器动作。',
+    '- 桌面任务：只用 `gateway-desktop` skill，自带脚本执行真实桌面动作，范围仅限前台可见应用。',
     '- 定时提醒：只用 `reminder-tool` skill，自带脚本创建提醒。',
     '- 飞书官方文档 / wiki / 个人日历 / 个人任务：只用 `feishu-official-ops` skill，自带脚本执行真实 OpenAPI。',
     '- 社媒公开调研：优先使用 `social-intel` skill；单平台深挖改用对应 research skill。',

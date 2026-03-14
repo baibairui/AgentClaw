@@ -18,6 +18,7 @@ describe('AgentWorkspaceManager', () => {
     expect(result.workspaceDir).toContain(path.join('default'));
     expect(fs.existsSync(path.join(result.workspaceDir, 'AGENTS.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'gateway-browser', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'gateway-desktop', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'reminder-tool', 'SKILL.md'))).toBe(true);
   });
 
@@ -61,6 +62,8 @@ describe('AgentWorkspaceManager', () => {
     expect(fs.existsSync(path.join(result.workspaceDir, 'browser-playbook.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'gateway-browser', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'gateway-browser', 'scripts', 'gateway-browser.mjs'))).toBe(true);
+    expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'gateway-desktop', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'gateway-desktop', 'scripts', 'gateway-desktop.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'reminder-tool', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'reminder-tool', 'scripts', 'reminder-cli.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'feishu-official-ops', 'SKILL.md'))).toBe(true);
@@ -83,6 +86,8 @@ describe('AgentWorkspaceManager', () => {
     const bilibiliSkill = fs.readFileSync(path.join(result.workspaceDir, '.codex', 'skills', 'bilibili-research', 'SKILL.md'), 'utf8');
     const wechatArticleSkill = fs.readFileSync(path.join(result.workspaceDir, '.codex', 'skills', 'wechat-article-research', 'SKILL.md'), 'utf8');
     expect(tools).toContain('`gateway-browser` skill');
+    expect(tools).toContain('`gateway-desktop` skill');
+    expect(tools).toContain('前台可见应用');
     expect(tools).toContain('`reminder-tool` skill');
     expect(tools).toContain('`feishu-official-ops` skill');
     expect(tools).toContain('个人日历 / 个人任务');
