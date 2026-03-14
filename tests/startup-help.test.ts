@@ -8,10 +8,11 @@ describe('startup help', () => {
     const parsed = JSON.parse(payload) as {
       __gateway_message__?: boolean;
       msg_type?: string;
-      content?: { header?: { title?: { content?: string } } };
+      content?: { schema?: string; header?: { title?: { content?: string } } };
     };
     expect(parsed.__gateway_message__).toBe(true);
     expect(parsed.msg_type).toBe('interactive');
+    expect(parsed.content?.schema).toBe('2.0');
     expect(parsed.content?.header?.title?.content).toBe('命令帮助');
   });
 

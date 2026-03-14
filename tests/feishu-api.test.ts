@@ -273,6 +273,77 @@ describe('FeishuApi', () => {
     });
   });
 
+  it('normalizes legacy skill interactive cards into schema 2.0 payloads', async () => {
+    const createCalls: Array<{ msg_type: string; content: string }> = [];
+    const sdkClient = {
+      im: {
+        message: {
+          create: vi.fn(async (payload: { data: { msg_type: string; content: string } }) => {
+            createCalls.push(payload.data);
+            return { code: 0, msg: 'ok' };
+          }),
+          reply: vi.fn(),
+        },
+        image: { create: vi.fn() },
+        file: { create: vi.fn() },
+        messageResource: { get: vi.fn() },
+      },
+    };
+
+    const api = new FeishuApi({
+      appId: 'cli_xxx',
+      appSecret: 'yyy',
+      timeoutMs: 2000,
+      sdkClient,
+    });
+
+    await api.sendMessage('ou_a', {
+      msgType: 'interactive',
+      content: {
+        config: {
+          wide_screen_mode: true,
+          enable_forward: true,
+        },
+        header: {
+          template: 'blue',
+          title: {
+            tag: 'plain_text',
+            content: '登录授权',
+          },
+        },
+        elements: [
+          {
+            tag: 'markdown',
+            content: '**选择登录方式**\n请选择一种方式继续。',
+          },
+        ],
+      },
+    });
+
+    expect(JSON.parse(createCalls[0]?.content ?? '{}')).toEqual({
+      schema: '2.0',
+      config: {
+        wide_screen_mode: true,
+        enable_forward: true,
+      },
+      header: {
+        template: 'blue',
+        title: {
+          tag: 'plain_text',
+          content: '登录授权',
+        },
+      },
+      body: {
+        elements: [
+          {
+            tag: 'markdown',
+            content: '**选择登录方式**\n请选择一种方式继续。',
+          },
+        ],
+      },
+    });
+  });
+
   it('updates interactive messages using template shorthand', async () => {
     const updateCalls: Array<{
       message_id: string;

@@ -168,7 +168,41 @@ function buildGatewayStructuredMessage(msgType: string, content: Record<string, 
 }
 
 function buildFeishuInteractiveMessage(card: Record<string, unknown>): string {
-  return buildGatewayStructuredMessage('interactive', card);
+  return buildGatewayStructuredMessage('interactive', normalizeFeishuInteractiveCard(card));
+}
+
+function normalizeFeishuInteractiveCard(card: Record<string, unknown>): Record<string, unknown> {
+  const legacyElements = Array.isArray(card.elements) ? card.elements : undefined;
+  const existingBody = asRecord(card.body);
+  if (card.schema === '2.0' || existingBody || !legacyElements) {
+    return card;
+  }
+  const normalized: Record<string, unknown> = {
+    schema: '2.0',
+    body: {
+      elements: legacyElements,
+    },
+  };
+  const config = asRecord(card.config);
+  const header = asRecord(card.header);
+  const cardLink = asRecord(card.card_link);
+  if (config) {
+    normalized.config = config;
+  }
+  if (header) {
+    normalized.header = header;
+  }
+  if (cardLink) {
+    normalized.card_link = cardLink;
+  }
+  return normalized;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function resolveCommandLabel(commandName: string): string {
@@ -866,7 +900,7 @@ export function formatCommandOutboundMessage(channel: Channel, commandName: stri
   if (!normalized) {
     return text;
   }
-  return buildGatewayStructuredMessage('interactive', buildFeishuInteractiveCommandCard(commandName, normalized));
+  return buildFeishuInteractiveMessage(buildFeishuInteractiveCommandCard(commandName, normalized));
 }
 
 export function buildFeishuLoginChoiceMessage(input: {

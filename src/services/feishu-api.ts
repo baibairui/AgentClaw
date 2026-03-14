@@ -897,6 +897,29 @@ function normalizeStructuredOutgoingContent(msgType: string, content: Record<str
         },
       };
     }
+    const body = asRecord(content.body);
+    const legacyElements = Array.isArray(content.elements) ? content.elements : undefined;
+    if (!content.schema && !body && legacyElements) {
+      const normalized: Record<string, unknown> = {
+        schema: '2.0',
+        body: {
+          elements: legacyElements,
+        },
+      };
+      const config = asRecord(content.config);
+      const header = asRecord(content.header);
+      const cardLink = asRecord(content.card_link);
+      if (config) {
+        normalized.config = config;
+      }
+      if (header) {
+        normalized.header = header;
+      }
+      if (cardLink) {
+        normalized.card_link = cardLink;
+      }
+      return normalized;
+    }
   }
   if (msgType === 'post') {
     const text = firstString(content.text);

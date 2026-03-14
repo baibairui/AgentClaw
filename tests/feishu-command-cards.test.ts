@@ -7,20 +7,30 @@ import {
   buildFeishuOpenCodeOauthMessage,
 } from '../src/services/feishu-command-cards.js';
 
+function getCardElements(payload: string): Array<Record<string, unknown>> {
+  const parsed = JSON.parse(payload) as {
+    content?: {
+      schema?: string;
+      body?: {
+        elements?: Array<Record<string, unknown>>;
+      };
+    };
+  };
+  expect(parsed.content?.schema).toBe('2.0');
+  return parsed.content?.body?.elements ?? [];
+}
+
 describe('buildFeishuLoginChoiceMessage', () => {
   it('renders both device auth and API login actions', () => {
     const payload = buildFeishuLoginChoiceMessage();
     const parsed = JSON.parse(payload) as {
       __gateway_message__?: boolean;
       msg_type?: string;
-      content?: {
-        elements?: Array<Record<string, unknown>>;
-      };
     };
 
     expect(parsed.__gateway_message__).toBe(true);
     expect(parsed.msg_type).toBe('interactive');
-    const actions = (parsed.content?.elements ?? [])
+    const actions = getCardElements(payload)
       .filter((item) => item.tag === 'action')
       .flatMap((item) => Array.isArray(item.actions) ? item.actions : []) as Array<{
         text?: { content?: string };
@@ -36,12 +46,7 @@ describe('buildFeishuLoginChoiceMessage', () => {
       providerLabel: 'OpenCode',
       supportsDeviceAuth: false,
     });
-    const parsed = JSON.parse(payload) as {
-      content?: {
-        elements?: Array<Record<string, unknown>>;
-      };
-    };
-    const actions = (parsed.content?.elements ?? [])
+    const actions = getCardElements(payload)
       .filter((item) => item.tag === 'action')
       .flatMap((item) => Array.isArray(item.actions) ? item.actions : []) as Array<{
         text?: { content?: string };
@@ -56,12 +61,7 @@ describe('buildFeishuLoginChoiceMessage', () => {
       providerLabel: 'OpenCode',
       supportsDeviceAuth: false,
     });
-    const parsed = JSON.parse(payload) as {
-      content?: {
-        elements?: Array<Record<string, unknown>>;
-      };
-    };
-    const actions = (parsed.content?.elements ?? [])
+    const actions = getCardElements(payload)
       .filter((item) => item.tag === 'action')
       .flatMap((item) => Array.isArray(item.actions) ? item.actions : []) as Array<{
         text?: { content?: string };
@@ -79,14 +79,11 @@ describe('buildFeishuApiLoginFormMessage', () => {
     const parsed = JSON.parse(payload) as {
       __gateway_message__?: boolean;
       msg_type?: string;
-      content?: {
-        elements?: Array<Record<string, unknown>>;
-      };
     };
 
     expect(parsed.__gateway_message__).toBe(true);
     expect(parsed.msg_type).toBe('interactive');
-    const form = (parsed.content?.elements ?? []).find((item) => item.tag === 'form') as
+    const form = getCardElements(payload).find((item) => item.tag === 'form') as
       | {
           name?: string;
           value?: Record<string, unknown>;
@@ -115,14 +112,11 @@ describe('buildFeishuOpenCodeOauthMessage', () => {
     const parsed = JSON.parse(payload) as {
       __gateway_message__?: boolean;
       msg_type?: string;
-      content?: {
-        elements?: Array<Record<string, unknown>>;
-      };
     };
 
     expect(parsed.__gateway_message__).toBe(true);
     expect(parsed.msg_type).toBe('interactive');
-    const actions = (parsed.content?.elements ?? [])
+    const actions = getCardElements(payload)
       .filter((item) => item.tag === 'action')
       .flatMap((item) => Array.isArray(item.actions) ? item.actions : []) as Array<{
         text?: { content?: string };
@@ -141,14 +135,11 @@ describe('buildFeishuOpenCodeInputFallbackMessage', () => {
     const parsed = JSON.parse(payload) as {
       __gateway_message__?: boolean;
       msg_type?: string;
-      content?: {
-        elements?: Array<Record<string, unknown>>;
-      };
     };
 
     expect(parsed.__gateway_message__).toBe(true);
     expect(parsed.msg_type).toBe('interactive');
-    const form = (parsed.content?.elements ?? []).find((item) => item.tag === 'form') as
+    const form = getCardElements(payload).find((item) => item.tag === 'form') as
       | {
           name?: string;
           value?: Record<string, unknown>;
