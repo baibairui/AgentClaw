@@ -348,7 +348,7 @@ describe('createChatHandler', () => {
 
     await handler({ channel: 'wecom', userId: 'u1', content: 'hello' });
 
-    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '❌ 请求执行失败，请稍后重试。');
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '❌ 这次处理没完成，请稍后重试。');
     expect(sessionStore.getSession('u1', 'default')).toBeUndefined();
   });
 
@@ -385,6 +385,94 @@ describe('createChatHandler', () => {
     expect(sendText.mock.calls.some((call) => String(call[2] ?? '').includes('❌ 请求执行失败'))).toBe(false);
   });
 
+  it('treats non-timeout failures after partial agent output as interruptions', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: async (input) => {
+          input.onMessage?.('先给你一个阶段性结论。');
+          throw new Error('boom-after-output');
+        },
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: 'hello' });
+
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '默认助手 ·\n先给你一个阶段性结论。');
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '默认助手 ·\n⚠️ 本次回复中断了，你可以直接回复“继续”让我接着处理。');
+    expect(sendText.mock.calls.some((call) => String(call[2] ?? '').includes('❌ 这次处理没完成'))).toBe(false);
+  });
+
+  it('shows login guidance when the active model channel is misconfigured', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: async () => {
+          throw new Error('invalid api_key');
+        },
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        isSharedMemoryEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: 'hello' });
+
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '⚠️ 当前模型通道暂时不可用。请先发送 /login，或联系管理员检查配置。');
+  });
+
+  it('shows a retry-later hint when the execution environment cannot start', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: async () => {
+          throw new Error('spawn codex ENOENT');
+        },
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        isSharedMemoryEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: 'hello' });
+
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '⚠️ 执行环境暂时不可用，请稍后重试。');
+  });
+
   it('persists a new session as soon as thread.started is observed', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();
@@ -413,7 +501,7 @@ describe('createChatHandler', () => {
     await handler({ channel: 'wecom', userId: 'u1', content: 'hello' });
 
     expect(sessionStore.getSession('u1', 'default')).toBe('thread_started_1');
-    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '❌ 请求执行失败，请稍后重试。');
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', '❌ 这次处理没完成，请稍后重试。');
   });
 
   it('sends ack when receiving normalized non-text inbound message', async () => {
@@ -597,6 +685,69 @@ local_image_path=${sourcePath}`,
     expect(match?.[1]).toBeTruthy();
     expect(match?.[1]?.startsWith(workspaceDir)).toBe(true);
     expect(fs.readFileSync(match![1], 'utf8')).toBe('fake-image');
+  });
+
+  it('injects a transcript block into the prompt when speech service processes inbound audio', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-handler-inbound-audio-'));
+    const workspaceDir = path.join(tempDir, 'workspace');
+    const sourceDir = path.join(tempDir, 'gateway-cache');
+    const sourcePath = path.join(sourceDir, 'sample.ogg');
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(sourcePath, Buffer.from('fake-audio'));
+    sessionStore.createAgent('u1', {
+      agentId: 'a1',
+      name: '测试Agent',
+      workspaceDir,
+    });
+    sessionStore.setCurrentAgent('u1', 'a1');
+    const run = vi.fn(async () => ({ threadId: 'thread_audio_1', rawOutput: '' }));
+    const processInboundAudio = vi.fn(async ({ prompt }: { prompt: string }) => ({
+      prompt: `${prompt}\n[语音输入转写]\nsource=feishu\ntranscript=你好，帮我总结一下`,
+    }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+      speechService: {
+        processInboundAudio,
+      },
+    });
+
+    await handler({
+      channel: 'feishu',
+      userId: 'u1',
+      content: `[飞书语音] file_key=file_1 duration=3200 file_name=voice.ogg mime_type=audio/ogg
+message_id=om_1
+[飞书附件元数据]
+local_audio_path=${sourcePath}`,
+    });
+
+    expect(processInboundAudio).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'feishu',
+      userId: 'u1',
+      workspaceDir,
+    }));
+
+    const runInput = run.mock.calls[0]?.[0];
+    const prompt = String(runInput?.prompt ?? '');
+    expect(prompt).toContain('[语音输入转写]');
+    expect(prompt).toContain('transcript=你好，帮我总结一下');
   });
   it('falls back to visible default agent when current agent is hidden onboarding agent', async () => {
     const sendText = vi.fn(async () => undefined);

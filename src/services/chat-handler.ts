@@ -102,6 +102,15 @@ interface WorkspacePublisherLike {
   repairUsers(): Promise<{ output: string }>;
 }
 
+interface SpeechServiceLike {
+  processInboundAudio?(input: {
+    prompt: string;
+    channel: Channel;
+    userId: string;
+    workspaceDir: string;
+  }): Promise<{ prompt: string } | undefined>;
+}
+
 interface AgentWorkspaceManagerLike {
   createWorkspace(input: {
     userId: string;
@@ -158,6 +167,7 @@ interface ChatHandlerDeps {
     disableAgentSkill(workspaceDir: string, skillName: string): { ok: boolean; reason?: string };
   };
   openCodeAuthFlowManager?: OpenCodeAuthFlowManager;
+  speechService?: SpeechServiceLike;
 }
 
 interface ReminderTriggerInput {
@@ -453,12 +463,50 @@ function isCodexTimeoutError(error: unknown): boolean {
   return /codex timeout after \d+ms/i.test(message) || /codex login timeout/i.test(message);
 }
 
+type ChatFailureKind = 'interrupted' | 'timeout' | 'auth_config' | 'runner_unavailable' | 'generic';
+
+function classifyChatFailure(error: unknown, sawAgentOutput: boolean): ChatFailureKind {
+  if (sawAgentOutput) {
+    return 'interrupted';
+  }
+  if (isCodexTimeoutError(error)) {
+    return 'timeout';
+  }
+
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (
+    /invalid api_key|invalid base_url|invalid model|not configured|does not support gateway device auth login/.test(message)
+    || /\blogin\b/.test(message)
+  ) {
+    return 'auth_config';
+  }
+  if (/\bspawn\b|enoent|eacces|command not found/.test(message)) {
+    return 'runner_unavailable';
+  }
+  return 'generic';
+}
+
 function buildAgentInterruptedText(agent: { name: string }): string {
   return formatAgentVisibleReply(agent, '⚠️ 本次回复中断了，你可以直接回复“继续”让我接着处理。');
 }
 
 function buildAgentTimeoutText(agent: { name: string }): string {
   return formatAgentVisibleReply(agent, '⏳ 这次处理时间有点长，已暂时中断。你可以直接回复“继续”，或把问题拆小一点再发一次。');
+}
+
+function buildChatFailureText(agent: { name: string }, kind: ChatFailureKind): string {
+  switch (kind) {
+    case 'interrupted':
+      return buildAgentInterruptedText(agent);
+    case 'timeout':
+      return buildAgentTimeoutText(agent);
+    case 'auth_config':
+      return '⚠️ 当前模型通道暂时不可用。请先发送 /login，或联系管理员检查配置。';
+    case 'runner_unavailable':
+      return '⚠️ 执行环境暂时不可用，请稍后重试。';
+    default:
+      return '❌ 这次处理没完成，请稍后重试。';
+  }
 }
 
 async function sendAgentProgress(
@@ -1573,7 +1621,13 @@ ${clipMessage(text, 500)}
 
       const startTime = Date.now();
       const normalizedPrompt = await stageInboundLocalPaths(prompt, resolveAgentWorkdir(runtimeAgent));
-      const runtimePrompt = buildOutboundMessageProtocolPrompt(channel, normalizedPrompt);
+      const speechPrompt = await deps.speechService?.processInboundAudio?.({
+        prompt: normalizedPrompt,
+        channel,
+        userId,
+        workspaceDir: resolveAgentWorkdir(runtimeAgent),
+      });
+      const runtimePrompt = buildOutboundMessageProtocolPrompt(channel, speechPrompt?.prompt ?? normalizedPrompt);
       await sendAgentProgress(deps, channel, userId, runtimeAgent, 'received');
       const runtimeProvider = getCurrentProvider(sessionUserKey, runtimeAgent.agentId);
       const activeRunner = getRunner(runtimeProvider);
@@ -1677,15 +1731,8 @@ ${clipMessage(userVisibleOutput, 500)}
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
-      if (isCodexTimeoutError(error)) {
-        await deps.sendText(
-          channel,
-          userId,
-          sawAgentOutput ? buildAgentInterruptedText(runtimeAgent) : buildAgentTimeoutText(runtimeAgent),
-        );
-        return;
-      }
-      await deps.sendText(channel, userId, '❌ 请求执行失败，请稍后重试。');
+      const failureKind = classifyChatFailure(error, sawAgentOutput);
+      await deps.sendText(channel, userId, buildChatFailureText(runtimeAgent, failureKind));
     }
   };
 }

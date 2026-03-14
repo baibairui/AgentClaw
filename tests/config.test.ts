@@ -48,6 +48,16 @@ const CONFIG_ENV_KEYS = [
   'RUNNER_ENABLED',
   'MEMORY_STEWARD_ENABLED',
   'MEMORY_STEWARD_INTERVAL_HOURS',
+  'SPEECH_ENABLED',
+  'SPEECH_MODE',
+  'SPEECH_STT_PROVIDER',
+  'SPEECH_STT_BASE_URL',
+  'SPEECH_STT_API_KEY_ENV',
+  'SPEECH_STT_MODEL',
+  'SPEECH_AUDIO_MAX_SIZE_MB',
+  'SPEECH_AUDIO_MAX_DURATION_SEC',
+  'SPEECH_AUDIO_ALLOWED_MIME_TYPES',
+  'SPEECH_PROMPT_INCLUDE_TRANSCRIPT_META',
 ] as const;
 
 async function loadConfigWithEnv(env: Record<string, string | undefined>) {
@@ -250,5 +260,71 @@ describe('config feishu mention trigger', () => {
       FEISHU_APP_SECRET: undefined,
       CODEX_SANDBOX: 'full-auto',
     })).rejects.toThrow(/codexclaw setup|codexclaw doctor/);
+  });
+});
+
+describe('config speech defaults', () => {
+  it('provides stage-1 speech defaults', async () => {
+    const config = await loadConfigWithEnv({
+      WECOM_ENABLED: 'false',
+      FEISHU_ENABLED: 'false',
+      CODEX_SANDBOX: 'full-auto',
+    });
+
+    expect(config.speech).toEqual({
+      enabled: false,
+      mode: 'transcribe_and_reply',
+      stt: {
+        provider: 'openai-compatible',
+        baseUrl: undefined,
+        apiKeyEnv: 'OPENAI_API_KEY',
+        model: 'gpt-4o-mini-transcribe',
+      },
+      audio: {
+        maxSizeMb: 25,
+        maxDurationSec: 300,
+        allowedMimeTypes: ['audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/webm'],
+      },
+      prompt: {
+        includeTranscriptMeta: true,
+      },
+    });
+  });
+
+  it('reads speech env overrides', async () => {
+    const config = await loadConfigWithEnv({
+      WECOM_ENABLED: 'false',
+      FEISHU_ENABLED: 'false',
+      CODEX_SANDBOX: 'full-auto',
+      SPEECH_ENABLED: 'true',
+      SPEECH_MODE: 'transcribe_only',
+      SPEECH_STT_PROVIDER: 'custom-provider',
+      SPEECH_STT_BASE_URL: 'https://speech.example.com/v1',
+      SPEECH_STT_API_KEY_ENV: 'SPEECH_API_KEY',
+      SPEECH_STT_MODEL: 'sensevoice-small',
+      SPEECH_AUDIO_MAX_SIZE_MB: '12',
+      SPEECH_AUDIO_MAX_DURATION_SEC: '90',
+      SPEECH_AUDIO_ALLOWED_MIME_TYPES: 'audio/ogg, audio/webm',
+      SPEECH_PROMPT_INCLUDE_TRANSCRIPT_META: 'false',
+    });
+
+    expect(config.speech).toEqual({
+      enabled: true,
+      mode: 'transcribe_only',
+      stt: {
+        provider: 'custom-provider',
+        baseUrl: 'https://speech.example.com/v1',
+        apiKeyEnv: 'SPEECH_API_KEY',
+        model: 'sensevoice-small',
+      },
+      audio: {
+        maxSizeMb: 12,
+        maxDurationSec: 90,
+        allowedMimeTypes: ['audio/ogg', 'audio/webm'],
+      },
+      prompt: {
+        includeTranscriptMeta: false,
+      },
+    });
   });
 });

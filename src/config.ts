@@ -79,6 +79,17 @@ function optionalBoolean(name: string): boolean | undefined {
   throw new Error(`invalid boolean env: ${name}`);
 }
 
+function optionalCsv(name: string, fallback: string[]): string[] {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function codexSandboxMode(): 'full-auto' | 'none' {
   const value = process.env.CODEX_SANDBOX ?? 'full-auto';
   if (value === 'full-auto' || value === 'none') {
@@ -93,6 +104,14 @@ function codexWorkdirIsolationMode(): 'off' | 'bwrap' {
     return value;
   }
   throw new Error(`invalid CODEX_WORKDIR_ISOLATION: ${value}`);
+}
+
+function speechMode(): 'transcribe_only' | 'transcribe_and_reply' {
+  const value = process.env.SPEECH_MODE ?? 'transcribe_and_reply';
+  if (value === 'transcribe_only' || value === 'transcribe_and_reply') {
+    return value;
+  }
+  throw new Error(`invalid SPEECH_MODE: ${value}`);
 }
 
 export const config = {
@@ -143,6 +162,30 @@ export const config = {
   runnerEnabled: process.env.RUNNER_ENABLED !== 'false',
   memoryStewardEnabled: process.env.MEMORY_STEWARD_ENABLED !== 'false',
   memoryStewardIntervalHours: optionalNumber('MEMORY_STEWARD_INTERVAL_HOURS', 1),
+  speech: {
+    enabled: process.env.SPEECH_ENABLED === 'true',
+    mode: speechMode(),
+    stt: {
+      provider: optionalString('SPEECH_STT_PROVIDER', 'openai-compatible'),
+      baseUrl: normalizeBaseUrl(optionalStringUndefined('SPEECH_STT_BASE_URL')),
+      apiKeyEnv: optionalString('SPEECH_STT_API_KEY_ENV', 'OPENAI_API_KEY'),
+      model: optionalString('SPEECH_STT_MODEL', 'gpt-4o-mini-transcribe'),
+    },
+    audio: {
+      maxSizeMb: optionalNumber('SPEECH_AUDIO_MAX_SIZE_MB', 25),
+      maxDurationSec: optionalNumber('SPEECH_AUDIO_MAX_DURATION_SEC', 300),
+      allowedMimeTypes: optionalCsv('SPEECH_AUDIO_ALLOWED_MIME_TYPES', [
+        'audio/mpeg',
+        'audio/mp4',
+        'audio/ogg',
+        'audio/wav',
+        'audio/webm',
+      ]),
+    },
+    prompt: {
+      includeTranscriptMeta: optionalBoolean('SPEECH_PROMPT_INCLUDE_TRANSCRIPT_META') ?? true,
+    },
+  },
 };
 
 if (config.feishuEnabled) {
