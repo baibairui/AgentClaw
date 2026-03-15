@@ -123,6 +123,7 @@ interface AgentWorkspaceManagerLike {
     template?: 'default' | 'memory-onboarding' | 'skill-onboarding';
   }): { agentId: string; workspaceDir: string };
   ensureDefaultWorkspace?(userId: string): { agentId: string; workspaceDir: string };
+  repairWorkspaceScaffold?(workspaceDir: string): void;
   isSharedMemoryEmpty(userId: string): boolean;
   isWorkspaceIdentityEmpty?(workspaceDir: string): boolean;
   getSharedMemorySnapshot?: (userId: string) => {
@@ -288,16 +289,32 @@ function resolveRuntimeAgent(
   userId: string,
   agent: AgentRecord,
 ): AgentRecord {
-  if (agent.agentId !== 'default') {
-    return agent;
+  let runtimeAgent = agent;
+  if (agent.agentId === 'default') {
+    const ensured = agentWorkspaceManager?.ensureDefaultWorkspace?.(userId);
+    if (ensured?.workspaceDir) {
+      runtimeAgent = {
+        ...agent,
+        workspaceDir: ensured.workspaceDir,
+      };
+    }
   }
-  const ensured = agentWorkspaceManager?.ensureDefaultWorkspace?.(userId);
-  if (!ensured?.workspaceDir) {
-    return agent;
+
+  const workspaceDir = runtimeAgent.workspaceDir?.trim()
+    ? path.resolve(runtimeAgent.workspaceDir)
+    : runtimeAgent.workspaceDir;
+  if (workspaceDir && !fs.existsSync(workspaceDir)) {
+    log.warn('runtime agent workspace missing, repairing scaffold', {
+      userId,
+      agentId: runtimeAgent.agentId,
+      workspaceDir,
+    });
+    agentWorkspaceManager?.repairWorkspaceScaffold?.(workspaceDir);
   }
+
   return {
-    ...agent,
-    workspaceDir: ensured.workspaceDir,
+    ...runtimeAgent,
+    workspaceDir,
   };
 }
 

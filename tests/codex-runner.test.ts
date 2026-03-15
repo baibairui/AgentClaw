@@ -290,6 +290,24 @@ describe('buildCodexSpawnSpec', () => {
     expect(spec.env.XDG_CACHE_HOME).toBeUndefined();
   });
 
+  it('uses the current node executable for node-shebang codex scripts', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-script-launch-'));
+    const codexScript = path.join(tempRoot, 'codex.js');
+    fs.writeFileSync(codexScript, '#!/usr/bin/env node\nconsole.log("ok");\n', { mode: 0o755 });
+
+    const spec = buildCodexSpawnSpec({
+      codexBin: codexScript,
+      args: ['exec', '--json', 'hello'],
+      cwd: '/tmp/agent-direct',
+      env: { HOME: '/root', PATH: '/usr/bin:/bin' },
+      isolationMode: 'off',
+      codexHomeDir: '/tmp/instance-home',
+    });
+
+    expect(spec.command).toBe(process.execPath);
+    expect(spec.args).toEqual([codexScript, 'exec', '--json', 'hello']);
+  });
+
   it('points direct opencode runs at the instance XDG home so tool env stays stable', () => {
     const instanceHome = '/tmp/opencode-instance-home';
     const spec = buildCodexSpawnSpec({
@@ -341,6 +359,30 @@ describe('buildCodexSpawnSpec', () => {
     const cdIndex = spec.args.indexOf('--cd');
     expect(cdIndex).toBeGreaterThan(-1);
     expect(spec.args[cdIndex + 1]).toBe('/workspace');
+  });
+
+  it('uses the current node executable inside bubblewrap for node-shebang codex scripts', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-script-bwrap-'));
+    const codexScript = path.join(tempRoot, 'bin', 'codex.js');
+    const workspaceDir = path.join(tempRoot, 'workspace');
+    fs.mkdirSync(path.dirname(codexScript), { recursive: true });
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(codexScript, '#!/usr/bin/env node\nconsole.log("ok");\n', { mode: 0o755 });
+
+    const spec = buildCodexSpawnSpec({
+      codexBin: codexScript,
+      args: ['exec', '--json', 'hello'],
+      cwd: workspaceDir,
+      env: { HOME: '/root', PATH: '/usr/bin:/bin' },
+      isolationMode: 'bwrap',
+      codexHomeDir: path.join(tempRoot, 'instance-home'),
+    });
+
+    const pathIndex = spec.args.lastIndexOf('PATH');
+    expect(pathIndex).toBeGreaterThan(-1);
+    const commandIndex = pathIndex + 2;
+    expect(spec.args[commandIndex]).toBe(process.execPath);
+    expect(spec.args[commandIndex + 1]).toBe(codexScript);
   });
 
   it('sets XDG data home for isolated opencode runs', () => {
@@ -728,9 +770,12 @@ describe('CodexRunner opencode config repair', () => {
   it('repairs legacy opencode config before spawning run', async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-repair-'));
     const opencodeHome = path.join(tempRoot, 'opencode-home');
+    const opencodeBin = path.join(tempRoot, 'bin', 'opencode');
     const configDir = path.join(opencodeHome, '.config', 'opencode');
     const configPath = path.join(configDir, 'opencode.json');
+    fs.mkdirSync(path.dirname(opencodeBin), { recursive: true });
     fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(opencodeBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     fs.writeFileSync(configPath, JSON.stringify({
       $schema: 'https://opencode.ai/config.json',
       provider: {
@@ -751,7 +796,7 @@ describe('CodexRunner opencode config repair', () => {
 
     const runner = new CodexRunner({
       provider: 'opencode',
-      codexBin: 'opencode',
+      codexBin: opencodeBin,
       codexHomeDir: opencodeHome,
       timeoutMs: 1_000,
     });
@@ -775,6 +820,21 @@ describe('CodexRunner opencode config repair', () => {
 });
 
 describe('CodexRunner', () => {
+  it('fails before spawn when the configured codex binary is unavailable', async () => {
+    vi.mocked(spawn).mockReset();
+    const runner = new CodexRunner({
+      codexBin: '/definitely/missing/codex',
+      workdir: '/tmp/agent-a',
+    });
+
+    await expect(runner.run({
+      prompt: 'hello',
+      workdir: '/tmp/agent-a',
+    })).rejects.toThrow(/codex executable not found/i);
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it('does not kill an active run when stdout activity keeps arriving before the idle timeout', async () => {
     vi.useFakeTimers();
     const child = createMockChildProcess();
@@ -792,12 +852,14 @@ describe('CodexRunner', () => {
     });
 
     child.stdout.write(`${JSON.stringify({ type: 'thread.started', thread_id: 'thread_active' })}\n`);
+    await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(40);
 
     child.stdout.write(`${JSON.stringify({
       type: 'item.completed',
       item: { type: 'agent_message', text: 'still working' },
     })}\n`);
+    await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(40);
 
     child.emit('close', 0);

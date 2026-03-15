@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { resolveCliProvider, resolveOpenCodeBin } from './services/cli-provider.js';
+import { resolveCliProvider, resolveCodexBin, resolveOpenCodeBin } from './services/cli-provider.js';
 
 dotenv.config();
 
@@ -114,6 +114,8 @@ function speechMode(): 'transcribe_only' | 'transcribe_and_reply' {
   throw new Error(`invalid SPEECH_MODE: ${value}`);
 }
 
+const resolvedCodexBin = resolveCodexBin(process.env.CODEX_BIN);
+
 export const config = {
   port: optionalNumber('PORT', 3000),
   wecomEnabled: process.env.WECOM_ENABLED !== 'false',
@@ -143,8 +145,8 @@ export const config = {
   rateLimitMaxMessages: optionalNumber('RATE_LIMIT_MAX_MESSAGES', 20),
   rateLimitWindowSeconds: optionalNumber('RATE_LIMIT_WINDOW_SECONDS', 60),
   allowFrom: optionalString('ALLOW_FROM', '*'),
-  codexProvider: resolveCliProvider(process.env.CODEX_PROVIDER, process.env.CODEX_BIN),
-  codexBin: process.env.CODEX_BIN ?? 'codex',
+  codexProvider: resolveCliProvider(process.env.CODEX_PROVIDER, resolvedCodexBin),
+  codexBin: resolvedCodexBin,
   opencodeBin: resolveOpenCodeBin(process.env.OPENCODE_BIN),
   codexModel: optionalStringUndefined('CODEX_MODEL'),
   codexSearch: process.env.CODEX_SEARCH === 'true',

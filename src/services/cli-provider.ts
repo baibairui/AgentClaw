@@ -65,23 +65,27 @@ export function runnerHomeDirName(provider: CliProvider): string {
 }
 
 export function resolveOpenCodeBin(explicitBin: string | undefined, homeDir = process.env.HOME): string {
-  const explicit = explicitBin?.trim();
-  if (explicit) {
-    return explicit;
-  }
-  if (homeDir?.trim()) {
-    const resolvedHome = path.resolve(homeDir.trim());
-    const candidateBins = [
-      path.join(resolvedHome, '.local', 'bin', 'opencode'),
-      path.join(resolvedHome, '.opencode', 'bin', 'opencode'),
-    ];
-    for (const candidate of candidateBins) {
-      if (isExecutableFile(candidate)) {
-        return candidate;
-      }
-    }
-  }
-  return 'opencode';
+  return resolveManagedCliBin(explicitBin, 'opencode', process.env.PATH, homeDir, [
+    '.local/bin',
+    '.opencode/bin',
+  ]);
+}
+
+export function resolveCodexBin(
+  explicitBin: string | undefined,
+  envPath = process.env.PATH,
+  homeDir = process.env.HOME,
+): string {
+  const extraDirs: string[] = [
+    '.local/bin',
+    '.npm-global/bin',
+    '.volta/bin',
+    ...resolveVersionedBinDirs(homeDir, ['.nvm', 'versions', 'node']),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/Applications/Codex.app/Contents/Resources',
+  ];
+  return resolveManagedCliBin(explicitBin, 'codex', envPath, homeDir, extraDirs);
 }
 
 export function isExecutableAvailable(bin: string, envPath = process.env.PATH): boolean {
@@ -272,6 +276,71 @@ function isExecutableFile(filePath: string): boolean {
     return fs.statSync(filePath).isFile();
   } catch {
     return false;
+  }
+}
+
+function resolveManagedCliBin(
+  explicitBin: string | undefined,
+  defaultBin: string,
+  envPath: string | undefined,
+  homeDir: string | undefined,
+  extraCandidateDirs: string[],
+): string {
+  const requested = explicitBin?.trim() || defaultBin;
+  if (requested.includes('/')) {
+    return isExecutableFile(requested) ? path.resolve(requested) : requested;
+  }
+
+  const fromPath = resolveExecutableOnPath(requested, envPath);
+  if (fromPath) {
+    return fromPath;
+  }
+
+  const homeRoot = homeDir?.trim() ? path.resolve(homeDir.trim()) : undefined;
+  for (const dir of extraCandidateDirs) {
+    const candidateDir = path.isAbsolute(dir)
+      ? dir
+      : (homeRoot ? path.join(homeRoot, dir) : undefined);
+    if (!candidateDir) {
+      continue;
+    }
+    const candidate = path.join(candidateDir, requested);
+    if (isExecutableFile(candidate)) {
+      return candidate;
+    }
+  }
+
+  return requested;
+}
+
+function resolveExecutableOnPath(bin: string, envPath: string | undefined): string | undefined {
+  for (const dir of (envPath ?? '').split(path.delimiter)) {
+    const candidateDir = dir.trim();
+    if (!candidateDir) {
+      continue;
+    }
+    const candidate = path.join(candidateDir, bin);
+    if (isExecutableFile(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function resolveVersionedBinDirs(homeDir: string | undefined, relativeRootParts: string[]): string[] {
+  const homeRoot = homeDir?.trim() ? path.resolve(homeDir.trim()) : undefined;
+  if (!homeRoot) {
+    return [];
+  }
+  const versionsRoot = path.join(homeRoot, ...relativeRootParts);
+  try {
+    return fs.readdirSync(versionsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))
+      .map((entry) => path.join(versionsRoot, entry, 'bin'));
+  } catch {
+    return [];
   }
 }
 

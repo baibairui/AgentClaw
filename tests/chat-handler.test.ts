@@ -268,6 +268,46 @@ describe('createChatHandler', () => {
     }));
   });
 
+  it('repairs a missing custom agent workspace before running', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    sessionStore.createAgent('u1', {
+      agentId: 'test',
+      name: '测试Agent',
+      workspaceDir: '/tmp/missing-agent-workspace',
+    });
+    sessionStore.setCurrentAgent('u1', 'test');
+    const run = vi.fn(async () => ({ threadId: 'thread_custom_ws', rawOutput: '' }));
+    const repairWorkspaceScaffold = vi.fn(() => undefined);
+
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        ensureDefaultWorkspace: () => ({ agentId: 'default', workspaceDir: '/tmp/user-default' }),
+        repairWorkspaceScaffold,
+        isSharedMemoryEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'wecom', userId: 'u1', content: 'hello' });
+
+    expect(repairWorkspaceScaffold).toHaveBeenCalledWith('/tmp/missing-agent-workspace');
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      workdir: '/tmp/missing-agent-workspace',
+    }));
+  });
+
   it('runs agent again when reminder trigger arrives', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();

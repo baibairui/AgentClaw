@@ -2,7 +2,6 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
 
 const cwd = process.cwd();
@@ -27,11 +26,92 @@ function missingIfEmpty(name) {
   return value === undefined || String(value).trim() === '';
 }
 
+function isExecutableFile(filePath) {
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function resolveExecutableOnPath(command, envPath) {
+  for (const dir of String(envPath || '').split(path.delimiter)) {
+    const candidateDir = dir.trim();
+    if (!candidateDir) {
+      continue;
+    }
+    const candidate = path.join(candidateDir, command);
+    if (isExecutableFile(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function resolveVersionedBinDirs(homeDir, relativeRootParts) {
+  if (!homeDir || !String(homeDir).trim()) {
+    return [];
+  }
+  const versionsRoot = path.join(path.resolve(String(homeDir).trim()), ...relativeRootParts);
+  try {
+    return fs.readdirSync(versionsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))
+      .map((entry) => path.join(versionsRoot, entry, 'bin'));
+  } catch {
+    return [];
+  }
+}
+
+function resolveCodexBin(command, envPath = process.env.PATH, homeDir = process.env.HOME) {
+  const requested = String(command || 'codex').trim() || 'codex';
+  if (requested.includes('/')) {
+    return isExecutableFile(requested) ? path.resolve(requested) : undefined;
+  }
+
+  const fromPath = resolveExecutableOnPath(requested, envPath);
+  if (fromPath) {
+    return fromPath;
+  }
+
+  const homeRoot = homeDir && String(homeDir).trim() ? path.resolve(String(homeDir).trim()) : undefined;
+  const extraDirs = [
+    '.local/bin',
+    '.npm-global/bin',
+    '.volta/bin',
+    ...resolveVersionedBinDirs(homeDir, ['.nvm', 'versions', 'node']),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/Applications/Codex.app/Contents/Resources',
+  ];
+  for (const dir of extraDirs) {
+    const candidateDir = path.isAbsolute(dir) ? dir : (homeRoot ? path.join(homeRoot, dir) : undefined);
+    if (!candidateDir) {
+      continue;
+    }
+    const candidate = path.join(candidateDir, requested);
+    if (isExecutableFile(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
 function commandExists(command) {
-  const result = spawnSync('bash', ['-lc', `command -v ${command}`], {
-    stdio: 'pipe',
-  });
-  return result.status === 0;
+  const requested = String(command || '').trim();
+  if (!requested) {
+    return false;
+  }
+  if (requested === 'codex') {
+    return Boolean(resolveCodexBin(requested));
+  }
+  if (requested.includes('/')) {
+    return isExecutableFile(requested);
+  }
+  return Boolean(resolveExecutableOnPath(requested, process.env.PATH));
 }
 
 const issues = [];

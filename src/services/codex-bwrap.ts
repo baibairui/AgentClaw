@@ -11,6 +11,12 @@ export interface CodexSpawnSpec {
   env: NodeJS.ProcessEnv;
 }
 
+interface ResolvedCliLaunch {
+  command: string;
+  argsPrefix: string[];
+  mountPaths: string[];
+}
+
 interface BuildCodexSpawnSpecInput {
   provider?: CliProvider;
   codexBin: string;
@@ -39,10 +45,11 @@ export function buildCodexSpawnSpec(input: BuildCodexSpawnSpecInput): CodexSpawn
   const provider = input.provider ?? 'codex';
   const hostEnv = buildHostCodexEnv(input.env, provider, input.codexHomeDir);
   const gatewayRootDir = resolveGatewayRootDir(hostEnv);
+  const launch = resolveCliLaunch(input.codexBin);
   if (input.isolationMode === 'off') {
     return {
-      command: input.codexBin,
-      args: input.args,
+      command: launch.command,
+      args: [...launch.argsPrefix, ...input.args],
       cwd: input.cwd,
       env: hostEnv,
     };
@@ -56,7 +63,7 @@ export function buildCodexSpawnSpec(input: BuildCodexSpawnSpecInput): CodexSpawn
     command: 'bwrap',
     args: buildBubblewrapArgs(
       provider,
-      input.codexBin,
+      launch,
       input.args,
       workspaceDir,
       runtimeHomeDir,
@@ -71,7 +78,7 @@ export function buildCodexSpawnSpec(input: BuildCodexSpawnSpecInput): CodexSpawn
 
 function buildBubblewrapArgs(
   provider: CliProvider,
-  codexBin: string,
+  launch: ResolvedCliLaunch,
   args: string[],
   workspaceDir: string,
   runtimeHomeDir: string,
@@ -99,7 +106,7 @@ function buildBubblewrapArgs(
   appendIfExists(result, ['--ro-bind', '/lib', '/lib']);
   appendIfExists(result, ['--ro-bind', '/lib64', '/lib64']);
   appendIfExists(result, ['--ro-bind', '/etc', '/etc']);
-  appendAbsoluteBinaryMounts(result, codexBin);
+  appendAbsoluteBinaryMounts(result, launch.mountPaths);
 
   result.push(
     '--bind',
@@ -141,7 +148,8 @@ function buildBubblewrapArgs(
     '--setenv',
     'PATH',
     DEFAULT_PATH,
-    codexBin,
+    launch.command,
+    ...launch.argsPrefix,
     ...sandboxArgs,
   );
 
@@ -284,23 +292,52 @@ function appendGatewayNodeModulesMount(result: string[], gatewayRootDir: string 
   );
 }
 
-function appendAbsoluteBinaryMounts(result: string[], codexBin: string): void {
-  if (!path.isAbsolute(codexBin) || !fs.existsSync(codexBin)) {
-    return;
-  }
-
-  const mounts = new Set<string>([path.resolve(codexBin)]);
-  try {
-    const realBin = fs.realpathSync(codexBin);
-    mounts.add(realBin);
-  } catch {
-    // Keep the original path only when realpath resolution fails.
+function appendAbsoluteBinaryMounts(result: string[], binaryPaths: string[]): void {
+  const mounts = new Set<string>();
+  for (const binaryPath of binaryPaths) {
+    if (!path.isAbsolute(binaryPath) || !fs.existsSync(binaryPath)) {
+      continue;
+    }
+    mounts.add(path.resolve(binaryPath));
+    try {
+      mounts.add(fs.realpathSync(binaryPath));
+    } catch {
+      // Keep the original path only when realpath resolution fails.
+    }
   }
 
   const createdDirs = new Set<string>();
   for (const source of mounts) {
     ensureSandboxDirTree(result, createdDirs, path.dirname(source));
     result.push('--ro-bind', source, source);
+  }
+}
+
+function resolveCliLaunch(codexBin: string): ResolvedCliLaunch {
+  if (!isNodeShebangScript(codexBin)) {
+    return {
+      command: codexBin,
+      argsPrefix: [],
+      mountPaths: [codexBin],
+    };
+  }
+
+  return {
+    command: process.execPath,
+    argsPrefix: [codexBin],
+    mountPaths: [process.execPath, codexBin],
+  };
+}
+
+function isNodeShebangScript(filePath: string): boolean {
+  if (!path.isAbsolute(filePath) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return false;
+  }
+  try {
+    const firstLine = fs.readFileSync(filePath, 'utf8').split('\n', 1)[0] ?? '';
+    return /^#!.*\bnode(?:\s|$)/.test(firstLine);
+  } catch {
+    return false;
   }
 }
 

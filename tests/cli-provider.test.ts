@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   readCliHomeDefaultModel,
+  resolveCodexBin,
   resolveOpenCodeBin,
   resolveCliProvider,
   writeCliApiLoginConfig,
@@ -28,6 +29,21 @@ describe('resolveOpenCodeBin', () => {
     fs.writeFileSync(opencodeBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
     expect(resolveOpenCodeBin(undefined, homeDir)).toBe(opencodeBin);
+  });
+});
+
+describe('resolveCodexBin', () => {
+  it('falls back to the newest nvm-installed codex binary when PATH does not include it', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-bin-home-'));
+    const olderBin = path.join(homeDir, '.nvm', 'versions', 'node', 'v20.19.0', 'bin', 'codex');
+    const newerBin = path.join(homeDir, '.nvm', 'versions', 'node', 'v22.16.0', 'bin', 'codex');
+
+    fs.mkdirSync(path.dirname(olderBin), { recursive: true });
+    fs.mkdirSync(path.dirname(newerBin), { recursive: true });
+    fs.writeFileSync(olderBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    fs.writeFileSync(newerBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
+    expect(resolveCodexBin('codex', '/usr/bin:/bin', homeDir)).toBe(newerBin);
   });
 });
 

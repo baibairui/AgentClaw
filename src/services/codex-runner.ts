@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import { createLogger } from '../utils/logger.js';
 import { buildCodexSpawnSpec, type CodexWorkdirIsolationMode } from './codex-bwrap.js';
-import { getCliProviderSpec, type CliProvider } from './cli-provider.js';
+import { getCliProviderSpec, isExecutableAvailable, resolveCodexBin, resolveOpenCodeBin, type CliProvider } from './cli-provider.js';
 
 const log = createLogger('CodexRunner');
 const execFileAsync = promisify(execFile);
@@ -144,7 +144,10 @@ export class CodexRunner {
 
   constructor(options: CodexRunnerOptions = {}) {
     this.provider = options.provider ?? 'codex';
-    this.codexBin = options.codexBin ?? 'codex';
+    const requestedBin = options.codexBin ?? (this.provider === 'opencode' ? 'opencode' : 'codex');
+    this.codexBin = this.provider === 'opencode'
+      ? resolveOpenCodeBin(requestedBin)
+      : resolveCodexBin(requestedBin);
     this.workdir = options.workdir ?? process.cwd();
     this.timeoutMs = options.timeoutMs;
     this.timeoutMinMs = options.timeoutMinMs ?? DEFAULT_TIMEOUT_MIN_MS;
@@ -253,6 +256,7 @@ export class CodexRunner {
     return new Promise((resolve, reject) => {
       const args = ['login', '--device-auth'];
       log.info('Codex 登录进程启动', { bin: this.codexBin, args });
+      this.assertExecutableAvailable(process.env);
 
       const spawnSpec = buildCodexSpawnSpec({
         provider: this.provider,
@@ -348,6 +352,7 @@ export class CodexRunner {
     });
 
     return new Promise<{ rawOutput: string; threadId?: string }>((resolve, reject) => {
+      this.assertExecutableAvailable(options.env ?? process.env);
       const spawnSpec = buildCodexSpawnSpec({
         provider: this.provider,
         codexBin: this.codexBin,
@@ -509,6 +514,14 @@ export class CodexRunner {
         });
       });
     });
+  }
+
+  private assertExecutableAvailable(env: NodeJS.ProcessEnv): void {
+    if (isExecutableAvailable(this.codexBin, env.PATH)) {
+      return;
+    }
+    const providerLabel = getCliProviderSpec(this.provider).label.toLowerCase();
+    throw new Error(`${providerLabel} executable not found: ${this.codexBin}. Check CODEX_BIN or PATH.`);
   }
 
   private resolveTimeoutMs(prompt: string): number {
