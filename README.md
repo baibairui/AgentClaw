@@ -821,6 +821,7 @@ npm run publish:workspace
 ## 协作与许可证
 
 - 贡献指南：[CONTRIBUTING.md](./CONTRIBUTING.md)
+- 仓库治理规范：[docs/repository-governance.md](./docs/repository-governance.md)
 - 行为准则：[CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
 - 安全策略：[SECURITY.md](./SECURITY.md)
 - 许可证：[LICENSE](./LICENSE)
