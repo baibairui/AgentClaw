@@ -8,6 +8,6 @@ package.json.bak.*
 .deploy-backups/
 docs/
 deploy*.sh
-!deploy-env.sh
+bin/publish-workspace.sh
 
 .worktrees/
