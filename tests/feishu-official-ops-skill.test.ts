@@ -33,5 +33,6 @@ describe('installFeishuOfficialOpsSkill', () => {
     expect(agentsMd).toContain('`auth diagnose-permission`');
     expect(agentsMd).toContain('`required-scopes-json`');
     expect(agentsMd).toContain('不要问“要不要我继续”');
+    expect(agentsMd).not.toContain('feishu-ops-playbook');
   });
 });

@@ -34,6 +34,32 @@ function repairWorkspace(workspaceDir: string): void {
   installFeishuCanvasSkill(workspaceDir);
 }
 
+function listUserWorkspaceDirs(userDir: string): string[] {
+  const output: string[] = [];
+  const agentsDir = path.join(userDir, 'agents');
+  if (fs.existsSync(agentsDir) && fs.statSync(agentsDir).isDirectory()) {
+    for (const workspaceName of fs.readdirSync(agentsDir)) {
+      const workspaceDir = path.join(agentsDir, workspaceName);
+      if (fs.statSync(workspaceDir).isDirectory()) {
+        output.push(workspaceDir);
+      }
+    }
+  }
+
+  for (const workspaceName of fs.readdirSync(userDir)) {
+    if (workspaceName === 'agents' || workspaceName === 'internal' || workspaceName === 'shared-memory' || workspaceName === '_memory-steward' || workspaceName === '_legacy') {
+      continue;
+    }
+    const workspaceDir = path.join(userDir, workspaceName);
+    if (!fs.statSync(workspaceDir).isDirectory()) {
+      continue;
+    }
+    output.push(workspaceDir);
+  }
+
+  return Array.from(new Set(output.map((dir) => path.resolve(dir))));
+}
+
 function tryEnsureDir(dir: string): boolean {
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -82,15 +108,7 @@ function run(): void {
     stats.users += 1;
     workspaceManager.repairUserSharedMemoryTree(userDir);
 
-    for (const workspaceName of fs.readdirSync(userDir)) {
-      if (workspaceName === 'shared-memory' || workspaceName === '_memory-steward') {
-        continue;
-      }
-      const workspaceDir = path.join(userDir, workspaceName);
-      if (!fs.statSync(workspaceDir).isDirectory()) {
-        stats.skipped += 1;
-        continue;
-      }
+    for (const workspaceDir of listUserWorkspaceDirs(userDir)) {
       repairWorkspace(workspaceDir);
       workspaceManager.repairWorkspaceScaffold(workspaceDir);
       stats.workspaces += 1;

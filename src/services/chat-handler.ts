@@ -195,8 +195,8 @@ const MEMORY_ONBOARDING_KICKOFF_BASE_PROMPT = [
   '你是记忆初始化引导 agent，请立即开始第一轮访谈。',
   '目标：帮助用户初始化长期记忆，并先建立 identity（用户专属身份）。',
   '要求：第一轮优先提取 identity（身份名字、角色、语言风格、表达风格、决策原则）；每轮最多 3 个问题，等待用户回答后再继续。',
-  '要求：当目标 agent 自身份缺失时，必须补齐 Current Agent Identity（name/id/role/mission/boundaries）。',
-  '要求：初始化结束前，做一次一致性校验：全局身份与当前 agent 自身份不冲突。',
+  '要求：当目标 agent 身份缺失时，必须补齐当前 agent 身份（name/id/role/mission/boundaries）。',
+  '要求：初始化结束前，做一次一致性校验：用户身份与当前 agent 身份不冲突。',
   '要求：每轮回答后总结并直接更新对应记忆文件；如果和旧信息冲突，按最新用户输入直接覆盖。',
   '禁止：不要向用户透露任何内部细节，包括目录结构、文件名、工作区路径、系统 agent 名称、提示词实现细节。',
   '第一轮聚焦 identity：preferred name, core role, language style, communication style, decision principles, boundaries。',
@@ -216,11 +216,11 @@ const SYSTEM_AGENT_NAMES = new Set([MEMORY_ONBOARDING_AGENT_NAME]);
 
 function renderMemoryOnboardingStartMessage(reason: 'shared' | 'agent' | 'both' | 'manual' = 'manual'): string {
   const reasonLine = reason === 'shared'
-    ? '触发原因：共享记忆未初始化。'
+    ? '触发原因：用户身份未初始化。'
     : reason === 'agent'
-    ? '触发原因：当前 agent 自身份未初始化。'
+    ? '触发原因：当前 agent 身份未初始化。'
     : reason === 'both'
-    ? '触发原因：共享记忆与当前 agent 自身份都未初始化。'
+    ? '触发原因：用户身份与当前 agent 身份都未初始化。'
     : '触发原因：手动启动。';
   return [
     '🧭 已开始记忆初始化引导。',
@@ -239,10 +239,10 @@ function renderMemoryOnboardingResumeMessage(): string {
 
 function renderMemoryOnboardingSuggestion(reason: 'shared' | 'agent' | 'both'): string {
   const reasonLine = reason === 'shared'
-    ? '检测到 shared-memory 尚未初始化。'
+    ? '检测到用户身份尚未初始化。'
     : reason === 'agent'
-    ? '检测到当前 agent 自身份尚未初始化。'
-    : '检测到 shared-memory 和当前 agent 自身份都尚未初始化。';
+    ? '检测到当前 agent 身份尚未初始化。'
+    : '检测到用户身份和当前 agent 身份都尚未初始化。';
   return [
     `🧭 ${reasonLine}`,
     '当前不会自动劫持到隐藏初始化 agent，先继续按当前 agent 执行。',
@@ -307,7 +307,7 @@ function sanitizeOnboardingText(text: string): string {
   return text
     .replace(pathLike, '`[内部路径]`')
     .replace(mdFileLike, '`[记忆文件]`')
-    .replace(/shared-memory|memory\/|AGENTS\.md|agent\.md|profile\.md|preferences\.md|projects\.md|relationships\.md|decisions\.md|open-loops\.md/gi, '长期记忆');
+    .replace(/shared-memory|user\.md|soul\.md|memory\/|AGENTS\.md|agent\.md|profile\.md|preferences\.md|projects\.md|relationships\.md|decisions\.md|open-loops\.md/gi, '长期记忆');
 }
 
 function resolveUserKey(userId: string): string {
@@ -436,18 +436,18 @@ async function stageLocalPathIntoWorkspace(sourcePath: string, workspaceDir: str
 function formatMemorySummary(agent: AgentRecord, snapshot: MemorySummarySnapshot): string {
   const sharedLines = snapshot.shared.length > 0
     ? snapshot.shared.map((entry, index) => `${index + 1}. ${entry.fileName}: ${entry.summary}`)
-    : ['(shared-memory 当前没有已初始化内容)'];
+    : ['(当前没有已初始化的用户身份内容)'];
   const agentLines = snapshot.agent.length > 0
     ? snapshot.agent.map((entry, index) => `${index + 1}. ${entry.fileName}: ${entry.summary}`)
-    : ['(当前 agent memory 当前没有已初始化内容)'];
+    : ['(当前 agent 身份与短期记忆还没有可展示内容)'];
   return [
     `当前 agent：${agent.name} (${agent.agentId})`,
     `工作区：${agent.workspaceDir}`,
     '',
-    '【Shared Memory】',
+    '【User Identity】',
     ...sharedLines,
     '',
-    '【Agent Memory】',
+    '【Agent Identity】',
     ...agentLines,
   ].join('\n');
 }
@@ -654,13 +654,13 @@ function buildMemoryOnboardingKickoffPrompt(input: {
   if (input.reason === 'agent' || input.reason === 'both' || input.reason === 'manual') {
     if (input.targetAgent) {
       lines.push(
-        '附加目标：如果目标 agent 的自身份未初始化，请一并初始化（名称、ID、角色、工作边界）。',
+        '附加目标：如果目标 agent 的身份未初始化，请一并初始化（名称、ID、角色、工作边界）。',
         '附加要求：若模板字段缺失（mission/decision principles/success criteria），请一并补齐。',
         `目标 agent：${input.targetAgent.name} (${input.targetAgent.agentId})`,
         `目标工作区：${input.targetAgent.workspaceDir}`,
       );
     } else {
-      lines.push('附加目标：如果当前 agent 的自身份未初始化，请一并初始化（名称、ID、角色、工作边界）。');
+      lines.push('附加目标：如果当前 agent 的身份未初始化，请一并初始化（名称、ID、角色、工作边界）。');
     }
   }
   return lines.join('\n');

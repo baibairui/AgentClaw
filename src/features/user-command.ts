@@ -114,7 +114,7 @@ const HELP_ENTRIES: Array<{ section: string; line: string }> = [
   { section: '模型、技能与执行', line: '/model [模型名] - 切换模型' },
   { section: '模型、技能与执行', line: '/model reset - 重置为默认模型' },
   { section: '模型、技能与执行', line: '/models [页码] - 查看模型列表分页' },
-  { section: '模型、技能与执行', line: '/memory - 查看当前 agent 与 shared-memory 摘要' },
+  { section: '模型、技能与执行', line: '/memory - 查看当前 agent、用户身份与短期记忆摘要' },
   { section: '模型、技能与执行', line: '/skills - 查看当前会话生效 skill 列表（全局 + 当前 agent）' },
   { section: '模型、技能与执行', line: '/skills global - 查看全局 skill' },
   { section: '模型、技能与执行', line: '/skills agent - 查看当前 agent skill' },

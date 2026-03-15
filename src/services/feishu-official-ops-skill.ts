@@ -35,7 +35,7 @@ function ensureAgentsFeishuOpsRule(workspaceDir: string): void {
     FEISHU_RULE_START,
     '飞书官方操作规则：',
     '- 用户要求创建飞书文档、知识库节点、个人日程、个人待办等真实飞书对象时，优先使用 `./.codex/skills/feishu-official-ops/SKILL.md`。',
-    '- DocX / Wiki 走 `./feishu-ops-playbook.md` 的标准流程；不要再尝试任何个人授权链路。',
+    '- DocX / Wiki 的长操作规范跟随 skill 自己的说明，不在当前工作区复制 playbook。',
     '- DocX / Wiki 写入完成的判定标准是真实返回 document_id / document_url / node token；只产出 markdown 文本不算完成。',
     '- DocX / Wiki 使用应用凭据直接写，不需要用户个人授权；禁止把文档写入结果再引导到任何用户登录。',
     '- 用户说“帮我建日程”这类当前用户个人日历事务时，默认走 `calendar create-personal-event`，不要误用共享 `calendar create-event`。',

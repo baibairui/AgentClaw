@@ -170,6 +170,88 @@ describe('AgentWorkspaceManager', () => {
 
     expect(manager.isWorkspaceIdentityEmpty(workspace.workspaceDir)).toBe(false);
   });
+
+  it('migrates legacy shared memory into user.md and moves the steward workspace under internal', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workspace-'));
+    const manager = new AgentWorkspaceManager(dir);
+    const userDir = path.join(dir, 'users', 'legacy-user');
+    const sharedMemoryDir = path.join(userDir, 'shared-memory');
+    const legacyStewardDir = path.join(userDir, '_memory-steward');
+
+    fs.mkdirSync(path.join(sharedMemoryDir, 'daily'), { recursive: true });
+    fs.mkdirSync(legacyStewardDir, { recursive: true });
+    fs.writeFileSync(path.join(sharedMemoryDir, 'identity.md'), '# Identity\n\n- Preferred name: Alice\n', 'utf8');
+    fs.writeFileSync(path.join(sharedMemoryDir, 'preferences.md'), '# Preferences\n\n- 中文交流\n', 'utf8');
+    fs.writeFileSync(path.join(legacyStewardDir, 'README.md'), '# Legacy Steward\n', 'utf8');
+
+    manager.repairUserSharedMemoryTree(userDir);
+
+    expect(fs.existsSync(path.join(userDir, 'user.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(userDir, 'user.md'), 'utf8')).toContain('Alice');
+    expect(fs.readFileSync(path.join(userDir, 'user.md'), 'utf8')).toContain('中文交流');
+    expect(fs.existsSync(path.join(userDir, '_legacy', 'shared-memory', 'identity.md'))).toBe(true);
+    expect(fs.existsSync(path.join(userDir, 'shared-memory'))).toBe(false);
+    expect(fs.existsSync(path.join(userDir, 'internal', 'memory-steward', 'README.md'))).toBe(true);
+    expect(fs.existsSync(path.join(userDir, '_memory-steward'))).toBe(false);
+  });
+
+  it('migrates a legacy agent workspace into agents dir and merges soul content idempotently', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workspace-'));
+    const manager = new AgentWorkspaceManager(dir);
+    const userDir = path.join(dir, 'users', 'legacy-user');
+    const legacyWorkspaceDir = path.join(userDir, 'frontend-pair');
+
+    fs.mkdirSync(path.join(legacyWorkspaceDir, 'memory'), { recursive: true });
+    fs.writeFileSync(path.join(legacyWorkspaceDir, 'agent.md'), [
+      '# Agent Memory Index',
+      '',
+      '- Agent Name: Frontend Pair',
+      '- Agent ID: frontend-pair',
+      '- Role: Frontend Pair',
+      '- Boundaries: Avoid unrelated edits',
+      '',
+    ].join('\n'), 'utf8');
+    fs.writeFileSync(path.join(legacyWorkspaceDir, 'memory', 'identity.md'), [
+      '# Identity',
+      '',
+      '## Current Agent Identity',
+      '- Agent name: Frontend Pair',
+      '- Agent ID: frontend-pair',
+      '- Agent role: Frontend Pair',
+      '- Mission: Build the UI refactor',
+      '- Working style: Direct and test-first',
+      '- Decision principles:',
+      '  - Prefer minimal diffs',
+      '- Boundaries:',
+      '  - Keep scope tight',
+      '- Success criteria: Verified changes only',
+      '',
+    ].join('\n'), 'utf8');
+    fs.writeFileSync(path.join(legacyWorkspaceDir, 'TOOLS.md'), '# TOOLS\n', 'utf8');
+    fs.writeFileSync(path.join(legacyWorkspaceDir, 'browser-playbook.md'), '# Browser Playbook\n', 'utf8');
+    fs.writeFileSync(path.join(legacyWorkspaceDir, 'feishu-ops-playbook.md'), '# Feishu Ops Playbook\n', 'utf8');
+
+    manager.repairWorkspaceScaffold(legacyWorkspaceDir);
+
+    const migratedWorkspaceDir = path.join(userDir, 'agents', 'frontend-pair');
+    const firstSoul = fs.readFileSync(path.join(migratedWorkspaceDir, 'SOUL.md'), 'utf8');
+
+    expect(fs.existsSync(migratedWorkspaceDir)).toBe(true);
+    expect(firstSoul).toContain('- Mission: Build the UI refactor');
+    expect(firstSoul).toContain('- Working style: Direct and test-first');
+    expect(firstSoul).toContain('- Success criteria: Verified changes only');
+    expect(firstSoul).toContain('Prefer minimal diffs');
+    expect(firstSoul).toContain('Keep scope tight');
+    expect(fs.existsSync(path.join(migratedWorkspaceDir, 'agent.md'))).toBe(false);
+    expect(fs.existsSync(path.join(migratedWorkspaceDir, 'TOOLS.md'))).toBe(false);
+    expect(fs.existsSync(path.join(migratedWorkspaceDir, 'browser-playbook.md'))).toBe(false);
+    expect(fs.existsSync(path.join(migratedWorkspaceDir, 'feishu-ops-playbook.md'))).toBe(false);
+    expect(fs.existsSync(path.join(migratedWorkspaceDir, 'memory', 'identity.md'))).toBe(false);
+
+    manager.repairWorkspaceScaffold(migratedWorkspaceDir);
+
+    expect(fs.readFileSync(path.join(migratedWorkspaceDir, 'SOUL.md'), 'utf8')).toBe(firstSoul);
+  });
 });
 
 function findOnlyUserDir(rootDir: string): string {
