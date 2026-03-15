@@ -63,7 +63,8 @@ describe('AgentWorkspaceManager', () => {
     expect(fs.existsSync(path.join(result.workspaceDir, 'memory', 'profile.md'))).toBe(false);
     expect(agentsMd).toContain('./SOUL.md');
     expect(agentsMd).toContain('../../user.md');
-    expect(agentsMd).toContain('../../../runtime/house-rules.md');
+    expect(agentsMd).toContain('../../../../runtime/house-rules.md');
+    expect(agentsMd).toContain('../../../../runtime/shared-context.md');
     expect(agentsMd).toContain('./.codex/skills/gateway-browser/SKILL.md');
     expect(agentsMd).toContain('./.codex/skills/feishu-official-ops/SKILL.md');
     expect(agentsMd).not.toContain('browser-playbook');
@@ -91,6 +92,8 @@ describe('AgentWorkspaceManager', () => {
     expect(fs.existsSync(path.join(result.workspaceDir, 'TOOLS.md'))).toBe(false);
     expect(agentsMd).toContain('Memory Steward');
     expect(agentsMd).toContain('../../user.md');
+    expect(agentsMd).toContain('../../../../runtime/house-rules.md');
+    expect(agentsMd).toContain('../../../../runtime/shared-context.md');
     expect(soul).toContain('- Role: System Memory Steward');
   });
 

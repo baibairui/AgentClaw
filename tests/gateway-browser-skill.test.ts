@@ -51,6 +51,8 @@ describe('gateway-browser-skill', () => {
     const skill = renderGatewayBrowserSkill();
 
     expect(skill).toContain('gateway-browser.mjs snapshot');
+    expect(skill).not.toContain('browser-playbook');
+    expect(skill).not.toContain('feishu-ops-playbook');
     expect(skill).toContain('refs are not stable across navigations');
     expect(skill).toContain('use `screenshot`, `tabs`, `evaluate`, or recording commands to collect evidence');
     expect(skill).toContain('Report format:');

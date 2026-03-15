@@ -52,6 +52,8 @@ describe('gateway-desktop-skill', () => {
     const skill = renderGatewayDesktopSkill();
 
     expect(skill).toContain('gateway-desktop.mjs frontmost-app');
+    expect(skill).not.toContain('browser-playbook');
+    expect(skill).not.toContain('feishu-ops-playbook');
     expect(skill).toContain('Execute one minimal action at a time');
     expect(skill).toContain('capture a screenshot after each critical action');
     expect(skill).toContain('frontmost visible application only');

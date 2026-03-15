@@ -57,6 +57,8 @@
 
 每个 agent 都可以拥有自己的工作区、历史会话和记忆文件，避免不同任务互相污染。
 
+当前默认布局会把运行时规则放在 `.data/runtime/`，把用户长期身份放在 `.data/users/<user>/user.md`，把每个 agent 的长期身份放在 `.data/users/<user>/agents/<agent>/SOUL.md`，而短期上下文只留在 `.data/users/<user>/agents/<agent>/memory/daily/`。系统内部还会保留一个隐藏的 `.data/users/<user>/internal/memory-steward/`，专门负责整理身份和短期记忆，不作为用户直接切换的普通 agent。
+
 ### 3. 渠道接入
 
 当前支持：
