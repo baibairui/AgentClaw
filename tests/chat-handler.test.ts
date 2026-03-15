@@ -2499,7 +2499,16 @@ local_audio_path=${sourcePath}`,
     const sendStreamingText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();
     const nowValues = [100, 1000, 2000, 3000];
-    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => nowValues.shift() ?? 4000);
+    let lastNow = 0;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      const next = nowValues.shift();
+      if (typeof next === 'number') {
+        lastNow = next;
+        return next;
+      }
+      lastNow += 1000;
+      return lastNow;
+    });
 
     const handler = createChatHandler({
       sessionStore,
@@ -2536,7 +2545,7 @@ local_audio_path=${sourcePath}`,
     expect(sendStreamingText.mock.calls[0]?.[2]).toBe(sendStreamingText.mock.calls[1]?.[2]);
     expect(sendStreamingText.mock.calls[0]?.[3]).toBe('默认助手 ·\n第一段');
     expect(sendStreamingText.mock.calls[0]?.[4]).toBe(false);
-    expect(sendStreamingText.mock.calls[1]?.[3]).toBe('默认助手 ·\n第一段默认助手 ·\n第二段');
+    expect(sendStreamingText.mock.calls[1]?.[3]).toBe('默认助手 ·\n第二段');
     expect(sendStreamingText.mock.calls[1]?.[4]).toBe(false);
     expect(sendText).not.toHaveBeenCalledWith('feishu', 'u1', '默认助手 ·\n第一段');
     expect(sendText).not.toHaveBeenCalledWith('feishu', 'u1', '默认助手 ·\n第二段');
