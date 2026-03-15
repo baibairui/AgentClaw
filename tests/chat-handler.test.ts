@@ -883,7 +883,7 @@ local_audio_path=${sourcePath}`,
     expect(systemPrefixed).toBe(false);
   });
 
-  it('renders current agent, user identity, and agent identity summary via /memory', async () => {
+  it('renders current agent and shared memory summary via /memory', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();
     const handler = createChatHandler({
@@ -898,13 +898,13 @@ local_audio_path=${sourcePath}`,
         isSharedMemoryEmpty: () => false,
         isWorkspaceIdentityEmpty: () => false,
         getMemorySummary: () => ({
-          sharedMemoryDir: '/tmp/user-root',
+          sharedMemoryDir: '/tmp/shared-memory',
           workspaceMemoryDir: '/repo/default/memory',
           shared: [
-            { fileName: 'user.md', summary: '叫我白瑞 / 中文交流 / 不弄虚作假' },
+            { fileName: 'identity.md', summary: '叫我白瑞 / 中文交流 / 不弄虚作假' },
           ],
           agent: [
-            { fileName: 'SOUL.md', summary: '默认助手 / 直接、基于事实 / 可验证交付' },
+            { fileName: 'projects.md', summary: 'wecom-codex-gateway 优化中' },
           ],
         }),
       },
@@ -920,17 +920,17 @@ local_audio_path=${sourcePath}`,
     expect(sendText).toHaveBeenCalledWith(
       'wecom',
       'u1',
-      expect.stringContaining('【User Identity】'),
+      expect.stringContaining('【Shared Memory】'),
     );
     expect(sendText).toHaveBeenCalledWith(
       'wecom',
       'u1',
-      expect.stringContaining('user.md: 叫我白瑞 / 中文交流 / 不弄虚作假'),
+      expect.stringContaining('identity.md: 叫我白瑞 / 中文交流 / 不弄虚作假'),
     );
     expect(sendText).toHaveBeenCalledWith(
       'wecom',
       'u1',
-      expect.stringContaining('【Agent Identity】'),
+      expect.stringContaining('【Agent Memory】'),
     );
   });
 
@@ -2279,7 +2279,7 @@ local_audio_path=${sourcePath}`,
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('workspace 发布完成'));
   });
 
-  it('keeps normal conversation and shows onboarding suggestion when user identity is empty', async () => {
+  it('keeps normal conversation and shows onboarding suggestion when shared memory is empty', async () => {
     const sendText = vi.fn(async () => undefined);
     const run = vi.fn(async () => ({ threadId: 'thread_default', rawOutput: '' }));
     const sessionStore = createSessionStore();
@@ -2308,7 +2308,7 @@ local_audio_path=${sourcePath}`,
       prompt: expect.stringContaining('我们开始吧'),
     }));
     expect(sessionStore.getCurrentAgent('u1').agentId).toBe('default');
-    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('用户身份尚未初始化'));
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('shared-memory 尚未初始化'));
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('/agent init-memory'));
   });
 
@@ -2328,8 +2328,7 @@ local_audio_path=${sourcePath}`,
         isSharedMemoryEmpty: () => false,
         isWorkspaceIdentityEmpty: () => true,
         getSharedMemorySnapshot: () => ({
-          sharedMemoryDir: '/tmp/user-root',
-          userIdentityPath: '/tmp/user-root/user.md',
+          sharedMemoryDir: '/tmp/shared-memory',
           identityContent: '# Identity\n- Preferred name: 白瑞\n',
           identityVersion: 'v1',
           hasIdentity: true,
@@ -2349,7 +2348,7 @@ local_audio_path=${sourcePath}`,
       search: false,
       prompt: expect.stringContaining('继续'),
     }));
-    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('当前 agent 身份尚未初始化'));
+    expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('当前 agent 自身份尚未初始化'));
     expect(sendText).toHaveBeenCalledWith('wecom', 'u1', expect.stringContaining('/agent init-memory'));
   });
 
@@ -2465,7 +2464,7 @@ local_audio_path=${sourcePath}`,
       prompt: string;
       onMessage?: (text: string) => void;
     }) => {
-      input.onMessage?.('我会写入 `../../user.md`，并读取 `./SOUL.md`。');
+      input.onMessage?.('我会写入 `./shared-memory/profile.md`，并读取 `./agent.md`。');
       return { threadId: 'thread_onboarding', rawOutput: '' };
     });
     const handler = createChatHandler({
@@ -2490,8 +2489,8 @@ local_audio_path=${sourcePath}`,
     const payloads = sendText.mock.calls.map((call) => String(call[2]));
     const sanitized = payloads.find((text) => text.includes('[内部路径]') || text.includes('[记忆文件]'));
     expect(sanitized).toBeTruthy();
-    expect(sanitized).not.toContain('user.md');
-    expect(sanitized).not.toContain('SOUL.md');
+    expect(sanitized).not.toContain('shared-memory');
+    expect(sanitized).not.toContain('agent.md');
   });
 
   it('streams feishu snapshots through the dedicated sender and skips a duplicate final flush', async () => {
@@ -2499,16 +2498,7 @@ local_audio_path=${sourcePath}`,
     const sendStreamingText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();
     const nowValues = [100, 1000, 2000, 3000];
-    let lastNow = 0;
-    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
-      const next = nowValues.shift();
-      if (typeof next === 'number') {
-        lastNow = next;
-        return next;
-      }
-      lastNow += 1000;
-      return lastNow;
-    });
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => nowValues.shift() ?? 4000);
 
     const handler = createChatHandler({
       sessionStore,
@@ -2545,7 +2535,7 @@ local_audio_path=${sourcePath}`,
     expect(sendStreamingText.mock.calls[0]?.[2]).toBe(sendStreamingText.mock.calls[1]?.[2]);
     expect(sendStreamingText.mock.calls[0]?.[3]).toBe('默认助手 ·\n第一段');
     expect(sendStreamingText.mock.calls[0]?.[4]).toBe(false);
-    expect(sendStreamingText.mock.calls[1]?.[3]).toBe('默认助手 ·\n第二段');
+    expect(sendStreamingText.mock.calls[1]?.[3]).toBe('默认助手 ·\n第一段默认助手 ·\n第二段');
     expect(sendStreamingText.mock.calls[1]?.[4]).toBe(false);
     expect(sendText).not.toHaveBeenCalledWith('feishu', 'u1', '默认助手 ·\n第一段');
     expect(sendText).not.toHaveBeenCalledWith('feishu', 'u1', '默认助手 ·\n第二段');

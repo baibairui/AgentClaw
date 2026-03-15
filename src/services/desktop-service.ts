@@ -25,7 +25,7 @@ type DesktopCapableManager = {
   typeText(text: string): Promise<void>;
   pressKey(key: string): Promise<void>;
   hotkey(keys: string[]): Promise<void>;
-  takeScreenshot(input: { filename?: string }): Promise<string>;
+  takeScreenshot(input: { filename?: string; showCursor?: boolean }): Promise<string>;
 };
 
 export function createDesktopAutomationBackend(manager: DesktopCapableManager): {
@@ -87,6 +87,7 @@ export function createDesktopAutomationBackend(manager: DesktopCapableManager): 
         case 'screenshot': {
           const path = await manager.takeScreenshot({
             filename: typeof args.filename === 'string' ? args.filename : undefined,
+            showCursor: args.showCursor === true,
           });
           return {
             text: path,

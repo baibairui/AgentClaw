@@ -10,6 +10,11 @@ export interface DesktopCoordinate {
   y: number;
 }
 
+export interface DesktopScreenSize {
+  width: number;
+  height: number;
+}
+
 export interface DesktopAutomationAdapter {
   moveMouse(coordinate: DesktopCoordinate): Promise<void>;
   click(input: {
@@ -25,13 +30,7 @@ export interface DesktopAutomationAdapter {
   pressKey(key: string): Promise<void>;
   hotkey(keys: string[]): Promise<void>;
   screenshot(filePath: string): Promise<void>;
-}
-
-interface DesktopWindowBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  getScreenSize?(): Promise<DesktopScreenSize | undefined>;
 }
 
 type CommandRunner = (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
@@ -102,7 +101,7 @@ export class DesktopManager {
     await this.adapter.hotkey(keys);
   }
 
-  async takeScreenshot(input: { filename?: string }): Promise<string> {
+  async takeScreenshot(input: { filename?: string; showCursor?: boolean }): Promise<string> {
     fs.mkdirSync(this.screenshotDir, { recursive: true });
     const filename = input.filename?.trim() || `desktop-${Date.now()}.png`;
     const filePath = path.isAbsolute(filename)
@@ -113,7 +112,7 @@ export class DesktopManager {
       fs.rmSync(filePath, { force: true });
     }
 
-    const capturedNatively = await this.tryCaptureFrontmostWindow(filePath);
+    const capturedNatively = await this.tryCaptureScreen(filePath, input.showCursor === true);
     if (!capturedNatively) {
       await this.adapter.screenshot(filePath);
     }
@@ -121,49 +120,63 @@ export class DesktopManager {
     if (!fs.existsSync(filePath)) {
       throw new Error(`Desktop screenshot was not created at expected path: ${filePath}`);
     }
+
+    await this.normalizeScreenshotToCoordinateSpace(filePath);
     return filePath;
   }
 
-  private async tryCaptureFrontmostWindow(filePath: string): Promise<boolean> {
-    const bounds = await this.readFrontmostWindowBounds().catch(() => undefined);
-    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+  private async tryCaptureScreen(filePath: string, showCursor: boolean): Promise<boolean> {
+    try {
+      await this.commandRunner('screencapture', [
+        ...(showCursor ? ['-C'] : []),
+        '-x',
+        filePath,
+      ]);
+    } catch {
       return false;
     }
-
-    await this.commandRunner('screencapture', [
-      '-x',
-      '-R',
-      `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`,
-      filePath,
-    ]);
     return fs.existsSync(filePath);
   }
 
-  private async readFrontmostWindowBounds(): Promise<DesktopWindowBounds | undefined> {
-    const result = await this.commandRunner('osascript', [
-      '-e',
-      [
-        'tell application "System Events"',
-        'tell (first application process whose frontmost is true)',
-        'tell front window',
-        'set p to position',
-        'set s to size',
-        'return (item 1 of p as text) & "," & (item 2 of p as text) & "," & (item 1 of s as text) & "," & (item 2 of s as text)',
-        'end tell',
-        'end tell',
-        'end tell',
-      ].join('\n'),
+  private async normalizeScreenshotToCoordinateSpace(filePath: string): Promise<void> {
+    const screenSize = await this.adapter.getScreenSize?.().catch(() => undefined);
+    if (!screenSize || screenSize.width <= 0 || screenSize.height <= 0) {
+      return;
+    }
+
+    const imageSize = await this.readImageSize(filePath).catch(() => undefined);
+    if (!imageSize || imageSize.width <= 0 || imageSize.height <= 0) {
+      return;
+    }
+    if (imageSize.width === screenSize.width && imageSize.height === screenSize.height) {
+      return;
+    }
+
+    const scaleX = imageSize.width / screenSize.width;
+    const scaleY = imageSize.height / screenSize.height;
+    const isUniformUpscale = scaleX > 1 && scaleY > 1 && Math.abs(scaleX - scaleY) <= 0.01;
+    if (!isUniformUpscale) {
+      return;
+    }
+
+    await this.commandRunner('sips', [
+      '-z',
+      String(screenSize.height),
+      String(screenSize.width),
+      filePath,
+      '--out',
+      filePath,
     ]);
-    const numbers = result.stdout.match(/-?\d+/g)?.map((value) => Number(value)) ?? [];
-    if (numbers.length < 4 || numbers.some((value) => !Number.isFinite(value))) {
+  }
+
+  private async readImageSize(filePath: string): Promise<DesktopScreenSize | undefined> {
+    const result = await this.commandRunner('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', filePath]);
+    const width = Number(result.stdout.match(/pixelWidth:\s*(\d+)/)?.[1] ?? 0);
+    const height = Number(result.stdout.match(/pixelHeight:\s*(\d+)/)?.[1] ?? 0);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
       return undefined;
     }
-    return {
-      x: numbers[0],
-      y: numbers[1],
-      width: numbers[2],
-      height: numbers[3],
-    };
+    return { width, height };
   }
 }
 
@@ -212,6 +225,12 @@ export async function createNutJsDesktopAutomationAdapter(nutJsModule?: NutJsLik
         fs.renameSync(capturedPath, filePath);
       }
     },
+    async getScreenSize() {
+      return {
+        width: await nutJs.screen.width(),
+        height: await nutJs.screen.height(),
+      };
+    },
   };
 }
 
@@ -243,6 +262,9 @@ function mapNutKey(nutJs: NutJsLike, key: string): import('@nut-tree-fork/nut-js
       return nutJs.Key.Return;
     case 'tab':
       return nutJs.Key.Tab;
+    case 'esc':
+    case 'escape':
+      return nutJs.Key.Escape;
     case 'space':
       return nutJs.Key.Space;
     case 'up':

@@ -352,7 +352,7 @@ export class AgentWorkspaceManager {
     const { workspaceDir, userIdentityPath, agentName, agentId, template } = input;
     fs.mkdirSync(path.join(workspaceDir, 'memory', 'daily'), { recursive: true });
 
-    this.writeIfMissing(
+    this.writeManagedFile(
       path.join(workspaceDir, 'AGENTS.md'),
       renderWorkspaceAgentsMd(
         agentName,
@@ -362,15 +362,15 @@ export class AgentWorkspaceManager {
         template,
       ),
     );
-    this.writeIfMissing(
+    this.writeManagedFile(
       path.join(workspaceDir, 'README.md'),
       renderWorkspaceReadme(agentName, agentId, template),
     );
-    this.writeIfMissing(
+    this.writeSoulBootstrapIfMissingOrUninitialized(
       path.join(workspaceDir, 'SOUL.md'),
       renderSoulBootstrap(agentName, agentId, template),
     );
-    this.writeIfMissing(
+    this.writeManagedFile(
       path.join(workspaceDir, 'memory', 'daily', 'README.md'),
       renderDailyMemoryReadme(),
     );
@@ -463,8 +463,22 @@ export class AgentWorkspaceManager {
     if (fs.existsSync(filePath)) {
       return;
     }
+    this.writeManagedFile(filePath, content);
+  }
+
+  private writeManagedFile(filePath: string, content: string): void {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, content, 'utf8');
+  }
+
+  private writeSoulBootstrapIfMissingOrUninitialized(filePath: string, content: string): void {
+    if (fs.existsSync(filePath)) {
+      const current = fs.readFileSync(filePath, 'utf8');
+      if (hasInitializedSoulContent(current)) {
+        return;
+      }
+    }
+    this.writeManagedFile(filePath, content);
   }
 
   private writeWorkspaceManifest(workspaceDir: string, manifest: WorkspaceManifest): void {

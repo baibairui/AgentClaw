@@ -52,10 +52,10 @@ describe('gateway-desktop-skill', () => {
     const skill = renderGatewayDesktopSkill();
 
     expect(skill).toContain('gateway-desktop.mjs frontmost-app');
-    expect(skill).not.toContain('browser-playbook');
-    expect(skill).not.toContain('feishu-ops-playbook');
     expect(skill).toContain('Execute one minimal action at a time');
     expect(skill).toContain('capture a screenshot after each critical action');
+    expect(skill).toContain('move the mouse first and capture a cursor-visible screenshot');
+    expect(skill).toContain('If a search box or command palette keeps focus, dismiss it with `press-key --key Esc`');
     expect(skill).toContain('frontmost visible application only');
     expect(skill).toContain('Do not run shell commands directly');
     expect(skill).toContain('request confirmation');
@@ -70,6 +70,9 @@ describe('gateway-desktop-skill', () => {
 
     expect(script).toContain('desktop gateway is unavailable in this session');
     expect(script).toContain('Restart the gateway');
+    expect(script).toContain('screenshot [--filename desktop-step.png] [--show-cursor true]');
+    expect(script).toContain('press-key --key <key>');
+    expect(script).toContain('showCursor: booleanValue(parsed["show-cursor"] ?? parsed.showCursor)');
   });
 
   it('syncs managed desktop skills into global skill roots', () => {

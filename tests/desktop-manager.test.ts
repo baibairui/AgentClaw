@@ -42,9 +42,6 @@ describe('DesktopManager', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-manager-'));
     const adapter = createAdapter();
     const commandRunner = vi.fn(async (file: string, args: string[]) => {
-      if (file === 'osascript') {
-        return { stdout: '10,20,800,600\n', stderr: '' };
-      }
       if (file === 'screencapture') {
         fs.writeFileSync(args[args.length - 1] as string, 'png');
       }
@@ -62,14 +59,12 @@ describe('DesktopManager', () => {
     expect(path.isAbsolute(filePath)).toBe(true);
     expect(commandRunner).toHaveBeenCalledWith('screencapture', [
       '-x',
-      '-R',
-      '10,20,800,600',
       path.join(tempDir, 'desktop-step.png'),
     ]);
     expect(adapter.screenshot).not.toHaveBeenCalled();
   });
 
-  it('falls back to the adapter screenshot when native frontmost-window capture is unavailable', async () => {
+  it('falls back to the adapter screenshot when native screencapture is unavailable', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-manager-'));
     const screenshotPath = path.join(tempDir, 'desktop-step.png');
     const adapter = createAdapter();
@@ -77,8 +72,8 @@ describe('DesktopManager', () => {
       fs.writeFileSync(filePath, 'png');
     });
     const commandRunner = vi.fn(async (file: string) => {
-      if (file === 'osascript') {
-        throw new Error('System Events not allowed');
+      if (file === 'screencapture') {
+        throw new Error('Screen Recording not allowed');
       }
       return { stdout: '', stderr: '' };
     });
@@ -91,10 +86,75 @@ describe('DesktopManager', () => {
     const filePath = await manager.takeScreenshot({ filename: 'desktop-step.png' });
 
     expect(filePath).toBe(screenshotPath);
+    expect(commandRunner).toHaveBeenCalledWith('screencapture', ['-x', screenshotPath]);
     expect(adapter.screenshot).toHaveBeenCalledWith(screenshotPath);
   });
 
-  it('maps hotkeys and screenshots through the nut.js adapter', async () => {
+  it('rescales native screenshots to match the desktop coordinate space', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-manager-'));
+    const screenshotPath = path.join(tempDir, 'desktop-step.png');
+    const adapter = createAdapter();
+    adapter.getScreenSize = vi.fn(async () => ({ width: 1470, height: 956 }));
+    const commandRunner = vi.fn(async (file: string, args: string[]) => {
+      if (file === 'screencapture') {
+        fs.writeFileSync(args[args.length - 1] as string, 'png');
+        return { stdout: '', stderr: '' };
+      }
+      if (file === 'sips' && args[0] === '-g') {
+        return {
+          stdout: `${screenshotPath}\n  pixelWidth: 2940\n  pixelHeight: 1912\n`,
+          stderr: '',
+        };
+      }
+      if (file === 'sips' && args[0] === '-z') {
+        return { stdout: '', stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const manager = new DesktopManager({
+      adapter,
+      commandRunner,
+      screenshotDir: tempDir,
+    });
+
+    const filePath = await manager.takeScreenshot({ filename: 'desktop-step.png' });
+
+    expect(filePath).toBe(screenshotPath);
+    expect(commandRunner).toHaveBeenCalledWith('screencapture', ['-x', screenshotPath]);
+    expect(commandRunner).toHaveBeenCalledWith('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', screenshotPath]);
+    expect(commandRunner).toHaveBeenCalledWith('sips', [
+      '-z',
+      '956',
+      '1470',
+      screenshotPath,
+      '--out',
+      screenshotPath,
+    ]);
+  });
+
+  it('includes the cursor in native screenshots when requested', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-manager-'));
+    const screenshotPath = path.join(tempDir, 'desktop-step.png');
+    const adapter = createAdapter();
+    const commandRunner = vi.fn(async (file: string, args: string[]) => {
+      if (file === 'screencapture') {
+        fs.writeFileSync(args[args.length - 1] as string, 'png');
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const manager = new DesktopManager({
+      adapter,
+      commandRunner,
+      screenshotDir: tempDir,
+    });
+
+    const filePath = await manager.takeScreenshot({ filename: 'desktop-step.png', showCursor: true });
+
+    expect(filePath).toBe(screenshotPath);
+    expect(commandRunner).toHaveBeenCalledWith('screencapture', ['-C', '-x', screenshotPath]);
+  });
+
+  it('maps hotkeys, escape, and screenshots through the nut.js adapter', async () => {
     const pressKey = vi.fn(async () => undefined);
     const releaseKey = vi.fn(async () => undefined);
     const capture = vi.fn(async () => '/tmp/desktop-step.png');
@@ -127,6 +187,7 @@ describe('DesktopManager', () => {
       Key: {
         LeftCmd: 'LeftCmd',
         LeftShift: 'LeftShift',
+        Escape: 'Escape',
         Return: 'Return',
       },
     };
@@ -134,10 +195,13 @@ describe('DesktopManager', () => {
     const adapter = await createNutJsDesktopAutomationAdapter(nutJs as never);
 
     await adapter.hotkey(['Meta', 'Shift', 'Enter']);
+    await adapter.pressKey('Esc');
     await adapter.screenshot('/tmp/desktop-step.png');
 
     expect(pressKey).toHaveBeenCalledWith('LeftCmd', 'LeftShift', 'Return');
+    expect(pressKey).toHaveBeenCalledWith('Escape');
     expect(releaseKey).toHaveBeenCalledWith('LeftCmd', 'LeftShift', 'Return');
+    expect(releaseKey).toHaveBeenCalledWith('Escape');
     expect(capture).toHaveBeenCalledWith('desktop-step', '.png', '/tmp');
   });
 });
@@ -151,5 +215,6 @@ function createAdapter() {
     pressKey: vi.fn(async () => undefined),
     hotkey: vi.fn(async () => undefined),
     screenshot: vi.fn(async () => undefined),
+    getScreenSize: vi.fn(async () => undefined),
   };
 }

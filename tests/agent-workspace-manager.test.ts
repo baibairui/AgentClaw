@@ -255,6 +255,71 @@ describe('AgentWorkspaceManager', () => {
 
     expect(fs.readFileSync(path.join(migratedWorkspaceDir, 'SOUL.md'), 'utf8')).toBe(firstSoul);
   });
+
+  it('reuses onboarding workspace ids but refreshes managed scaffold to the new memory layout', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workspace-'));
+    const manager = new AgentWorkspaceManager(dir);
+    const workspace = manager.createWorkspace({
+      userId: 'wecom:u1',
+      agentName: '记忆初始化引导',
+      existingAgentIds: [],
+      template: 'memory-onboarding',
+    });
+
+    fs.writeFileSync(path.join(workspace.workspaceDir, 'AGENTS.md'), [
+      '# AGENTS.md',
+      '',
+      '开始任务前，先阅读这些文件：',
+      '- `./agent.md`',
+      '- `./memory/identity.md`',
+      '- `./memory/profile.md`',
+      '- `./memory/preferences.md`',
+      '- `./memory/projects.md`',
+      '- `./memory/relationships.md`',
+      '- `./memory/decisions.md`',
+      '- `./memory/open-loops.md`',
+      '',
+    ].join('\n'), 'utf8');
+    fs.writeFileSync(path.join(workspace.workspaceDir, 'README.md'), '# Legacy Agent\n\n旧版说明。\n', 'utf8');
+    fs.writeFileSync(path.join(workspace.workspaceDir, 'SOUL.md'), [
+      '# SOUL',
+      '',
+      '- Agent name: 记忆初始化引导',
+      '- Agent ID: memory-onboarding',
+      '- Role: 记忆初始化引导',
+      '- Mission: 保留已有身份',
+      '- Working style: 直接',
+      '- Decision principles:',
+      '  - 先验证',
+      '- Boundaries:',
+      '  - 不编造',
+      '- Success criteria: 可验证',
+      '',
+    ].join('\n'), 'utf8');
+
+    const recreated = manager.createWorkspace({
+      userId: 'wecom:u1',
+      agentName: '记忆初始化引导',
+      existingAgentIds: ['memory-onboarding'],
+      template: 'memory-onboarding',
+    });
+
+    expect(recreated.agentId).toBe('memory-onboarding');
+    expect(recreated.workspaceDir).toBe(workspace.workspaceDir);
+
+    const agentsMd = fs.readFileSync(path.join(recreated.workspaceDir, 'AGENTS.md'), 'utf8');
+    const readme = fs.readFileSync(path.join(recreated.workspaceDir, 'README.md'), 'utf8');
+    const soul = fs.readFileSync(path.join(recreated.workspaceDir, 'SOUL.md'), 'utf8');
+
+    expect(agentsMd).toContain('./SOUL.md');
+    expect(agentsMd).toContain('../../user.md');
+    expect(agentsMd).toContain('./memory/daily/');
+    expect(agentsMd).not.toContain('./memory/identity.md');
+    expect(agentsMd).not.toContain('./memory/profile.md');
+    expect(readme).toContain('该 agent 用于引导用户补齐用户身份与当前 agent 身份。');
+    expect(soul).toContain('- Mission: 保留已有身份');
+    expect(soul).toContain('- Success criteria: 可验证');
+  });
 });
 
 function findOnlyUserDir(rootDir: string): string {

@@ -80,9 +80,9 @@ describe('createDesktopAutomationBackend', () => {
     };
     const backend = createDesktopAutomationBackend(manager);
 
-    const result = await backend.execute('screenshot', { filename: 'desktop-step.png' });
+    const result = await backend.execute('screenshot', { filename: 'desktop-step.png', showCursor: true });
 
-    expect(manager.takeScreenshot).toHaveBeenCalledWith({ filename: 'desktop-step.png' });
+    expect(manager.takeScreenshot).toHaveBeenCalledWith({ filename: 'desktop-step.png', showCursor: true });
     expect(result.text).toBe('/tmp/desktop-step.png');
     expect(result.data).toEqual({ path: '/tmp/desktop-step.png' });
   });
