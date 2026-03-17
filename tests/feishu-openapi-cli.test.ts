@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -124,6 +125,30 @@ function readFeishuUserBinding(filePath: string, gatewayUserId: string) {
   } finally {
     db.close();
   }
+}
+
+function resolveExpectedDefaultBindingDbPath(currentCwd: string, configuredGatewayRootDir?: string) {
+  const candidates = [
+    configuredGatewayRootDir?.trim() || undefined,
+    '/opt/gateway',
+    currentCwd,
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    const dbPath = path.resolve(candidate, '.data', 'feishu-user-binding.db');
+    if (fs.existsSync(dbPath)) {
+      return dbPath;
+    }
+  }
+
+  for (const candidate of candidates) {
+    const dataDir = path.resolve(candidate, '.data');
+    if (fs.existsSync(dataDir) || fs.existsSync(candidate)) {
+      return path.resolve(candidate, '.data', 'feishu-user-binding.db');
+    }
+  }
+
+  return path.resolve(currentCwd, '.data', 'feishu-user-binding.db');
 }
 
 describeIfSqlite('feishu-openapi doc target helpers', () => {
@@ -1224,6 +1249,7 @@ describeIfSqlite('feishu-openapi SDK-backed command groups', () => {
       operation: 'auth.poll-device-auth',
       gateway_user_id: 'ou_bind_1',
       device_code: 'dev_123',
+      binding_db_path: resolveExpectedDefaultBindingDbPath(process.cwd(), process.env.GATEWAY_ROOT_DIR),
       status: 'authorization_pending',
       authorized: false,
       message: 'Feishu device authorization is still pending.',
@@ -1281,6 +1307,7 @@ describeIfSqlite('feishu-openapi SDK-backed command groups', () => {
       ok: true,
       operation: 'auth.poll-device-auth',
       gateway_user_id: 'ou_bind_1',
+      binding_db_path: bindingDbPath,
       authorized: true,
       binding: {
         gateway_user_id: 'ou_bind_1',
@@ -1451,6 +1478,7 @@ describeIfSqlite('feishu-openapi SDK-backed command groups', () => {
       authorization_required: true,
       reason: 'feishu_user_binding_missing',
       gateway_user_id: 'ou_bind_1',
+      binding_db_path: resolveExpectedDefaultBindingDbPath(process.cwd(), process.env.GATEWAY_ROOT_DIR),
       required_scopes: ['calendar:calendar', 'calendar:calendar.event:create'],
       next_action: {
         resource: 'auth',
@@ -1492,6 +1520,7 @@ describeIfSqlite('feishu-openapi SDK-backed command groups', () => {
       authorization_required: true,
       reason: 'feishu_user_scope_missing',
       gateway_user_id: 'ou_bind_1',
+      binding_db_path: bindingDbPath,
       required_scopes: ['calendar:calendar', 'calendar:calendar.event:create'],
       missing_scopes: ['calendar:calendar.event:create'],
       next_action: {
@@ -1505,6 +1534,143 @@ describeIfSqlite('feishu-openapi SDK-backed command groups', () => {
       message: 'Feishu user authorization is missing required scopes. Run auth start-device-auth with the required scopes, finish auth poll-device-auth, then retry the original command.',
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the current working directory when GATEWAY_ROOT_DIR is invalid', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'feishu-binding-fallback-'));
+    const originalCwd = process.cwd();
+    process.chdir(tempDir);
+    vi.stubEnv('GATEWAY_ROOT_DIR', path.join(tempDir, 'missing-root'));
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === 'https://open.feishu.cn/open-apis/authen/v2/oauth/token') {
+        return new Response(JSON.stringify({
+          code: 0,
+          data: {
+            access_token: 'user_access_2',
+            refresh_token: 'refresh_2',
+            expires_in: 7200,
+            scope: 'offline_access',
+          },
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        });
+      }
+      if (url === 'https://open.feishu.cn/open-apis/authen/v1/user_info') {
+        return new Response(JSON.stringify({
+          code: 0,
+          data: {
+            open_id: 'ou_feishu_2',
+            user_id: 'u_feishu_2',
+          },
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const result = await runCommand({
+        resource: 'auth',
+        action: 'poll-device-auth',
+        args: {
+          'gateway-user-id': 'ou_bind_fallback',
+          'device-code': 'dev_fallback',
+          'app-id': 'cli_app',
+          'app-secret': 'cli_secret',
+        },
+      });
+
+      const expectedDbPath = resolveExpectedDefaultBindingDbPath(tempDir, path.join(tempDir, 'missing-root'));
+      expect(result).toMatchObject({
+        ok: true,
+        operation: 'auth.poll-device-auth',
+        binding_db_path: expectedDbPath,
+      });
+      expect(readFeishuUserBinding(expectedDbPath, 'ou_bind_fallback')).toMatchObject({
+        gatewayUserId: 'ou_bind_fallback',
+        accessToken: 'user_access_2',
+      });
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns authorization_required for docx create when gateway user binding is missing', async () => {
+    await expect(runCommand({
+      resource: 'docx',
+      action: 'create',
+      args: {
+        'gateway-user-id': 'ou_bind_docx_missing',
+        title: '个人文档',
+      },
+    })).resolves.toEqual({
+      ok: false,
+      operation: 'docx.create',
+      authorization_required: true,
+      reason: 'feishu_user_binding_missing',
+      gateway_user_id: 'ou_bind_docx_missing',
+      binding_db_path: resolveExpectedDefaultBindingDbPath(process.cwd(), process.env.GATEWAY_ROOT_DIR),
+      next_action: {
+        resource: 'auth',
+        action: 'start-device-auth',
+        args: {
+          'gateway-user-id': 'ou_bind_docx_missing',
+        },
+      },
+      message: 'Feishu user authorization required. Run auth start-device-auth, finish auth poll-device-auth, then retry the original command.',
+    });
+  });
+
+  it('uses the stored user token for docx create when gateway user binding exists', async () => {
+    const bindingDbPath = path.join(os.tmpdir(), `feishu-binding-${Date.now()}-docx-user.db`);
+    seedFeishuUserBinding(bindingDbPath, {
+      gatewayUserId: 'ou_bind_docx',
+      accessToken: 'user_access_docx',
+      refreshToken: 'refresh_docx',
+      expiresAt: Date.now() + 7_200_000,
+      scopeSnapshot: 'offline_access',
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://open.feishu.cn/open-apis/docx/v1/documents');
+      expect(init?.method).toBe('POST');
+      expect((init?.headers as Record<string, string>)?.Authorization).toBe('Bearer user_access_docx');
+      return new Response(JSON.stringify({
+        code: 0,
+        data: {
+          document: {
+            document_id: 'docx_user_1',
+            title: '个人文档',
+            revision_id: 1,
+          },
+        },
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(runCommand({
+      resource: 'docx',
+      action: 'create',
+      args: {
+        'gateway-user-id': 'ou_bind_docx',
+        'binding-db-path': bindingDbPath,
+        title: '个人文档',
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      operation: 'docx.create',
+      document_id: 'docx_user_1',
+      title: '个人文档',
+    });
   });
 
   it('creates a personal calendar event with an explicit user access token', async () => {

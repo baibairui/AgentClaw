@@ -17,6 +17,7 @@ const LATEST_DOC_STATE_PATH = path.resolve(process.cwd(), '.data', 'feishu-docx-
 const API_CATALOG_CACHE_PATH = path.resolve(process.cwd(), '.data', 'feishu-api-catalog.json');
 const FEISHU_USER_BINDING_DB_FILENAME = 'feishu-user-binding.db';
 const FEISHU_USER_BINDING_REFRESH_WINDOW_MS = 10_000;
+const DEFAULT_GATEWAY_ROOT_DIR = '/opt/gateway';
 const FEISHU_DEVICE_AUTH_URL = 'https://accounts.feishu.cn/oauth/v1/device_authorization';
 const FEISHU_DEVICE_TOKEN_URL = `${FEISHU_API_BASE}/authen/v2/oauth/token`;
 const FEISHU_USER_INFO_URL = `${FEISHU_API_BASE}/authen/v1/user_info`;
@@ -189,8 +190,8 @@ export function buildHelpText() {
     '  sheets get-sheet --spreadsheet-token <token> --sheet-id <id>',
     '  sheets find --spreadsheet-token <token> --sheet-id <id> --body-json <json>',
     '  sheets replace --spreadsheet-token <token> --sheet-id <id> --body-json <json>',
-    '  docx create --title <title> [--folder-token <token>] [--markdown <text>] [--markdown-file <path>] [--image-file <path>]',
-    '  docx append --document <url|token|document_id> [--markdown <text>] [--markdown-file <path>] [--image-file <path>]',
+    '  docx create --title <title> [--folder-token <token>] [--markdown <text>] [--markdown-file <path>] [--image-file <path>] [--user-access-token <token>] [--gateway-user-id <id>]',
+    '  docx append --document <url|token|document_id> [--markdown <text>] [--markdown-file <path>] [--image-file <path>] [--user-access-token <token>] [--gateway-user-id <id>]',
     '  wiki list-spaces [--page-size <n>] [--page-token <token>]',
     '  wiki list-nodes --space-id <id> [--parent-node-token <token>] [--page-size <n>] [--page-token <token>]',
     '  wiki get-node --token <token> [--obj-type <wiki|docx|doc|sheet|bitable|mindnote|file|slides>]',
@@ -378,10 +379,18 @@ export async function runCommand(input) {
     return handleWikiCommand(action, args, await resolveTenantToken(args, token));
   }
   if (resource === 'docx' && action === 'create') {
-    return createDocx(await resolveTenantToken(args, token), args);
+    const docxToken = await resolveDocxToken(args, token, 'docx.create');
+    if (typeof docxToken !== 'string') {
+      return docxToken;
+    }
+    return createDocx(docxToken, args);
   }
   if (resource === 'docx' && action === 'append') {
-    return appendDocx(await resolveTenantToken(args, token), args);
+    const docxToken = await resolveDocxToken(args, token, 'docx.append');
+    if (typeof docxToken !== 'string') {
+      return docxToken;
+    }
+    return appendDocx(docxToken, args);
   }
   throw new Error(`unsupported command: ${resource ?? ''} ${action ?? ''}`.trim());
 }
@@ -1678,6 +1687,7 @@ async function handleAuthCommand(action, args) {
       '--gateway-user-id',
     );
     const deviceCode = parseRequiredStringFlag(args['device-code'], '--device-code');
+    const bindingDbPath = resolveFeishuUserBindingDbPath(args);
     const polled = await pollFeishuDeviceAuth(deviceCode, args);
     if (!polled.ok) {
       return {
@@ -1685,6 +1695,7 @@ async function handleAuthCommand(action, args) {
         operation: 'auth.poll-device-auth',
         gateway_user_id: gatewayUserId,
         device_code: deviceCode,
+        binding_db_path: bindingDbPath,
         status: polled.status,
         authorized: false,
         message: polled.message,
@@ -1701,7 +1712,7 @@ async function handleAuthCommand(action, args) {
       },
       'feishu user info failed',
     );
-    const binding = upsertFeishuUserBinding(resolveFeishuUserBindingDbPath(args), {
+    const binding = upsertFeishuUserBinding(bindingDbPath, {
       gatewayUserId,
       feishuOpenId: firstNonEmptyString(userInfo?.data?.open_id),
       feishuUserId: firstNonEmptyString(userInfo?.data?.user_id),
@@ -1715,6 +1726,7 @@ async function handleAuthCommand(action, args) {
       operation: 'auth.poll-device-auth',
       gateway_user_id: gatewayUserId,
       device_code: deviceCode,
+      binding_db_path: bindingDbPath,
       authorized: true,
       binding: binding
         ? {
@@ -2061,13 +2073,52 @@ async function resolveFeishuUserAccessToken(args) {
   return next.accessToken;
 }
 
+async function resolveDocxToken(args, fallbackToken, operation) {
+  if (!shouldUseFeishuUserToken(args)) {
+    return resolveTenantToken(args, fallbackToken);
+  }
+  return resolveFeishuUserAccessTokenForOperation(args, operation);
+}
+
+function shouldUseFeishuUserToken(args) {
+  return Boolean(firstNonEmptyString(args?.['user-access-token'], args?.['gateway-user-id']));
+}
+
 function resolveFeishuUserBindingDbPath(args) {
   const explicitPath = firstNonEmptyString(args['binding-db-path'], process.env.FEISHU_USER_BINDING_DB_PATH);
   if (explicitPath) {
     return path.resolve(explicitPath);
   }
-  const gatewayRootDir = firstNonEmptyString(process.env.GATEWAY_ROOT_DIR, process.cwd());
-  return path.resolve(gatewayRootDir, '.data', FEISHU_USER_BINDING_DB_FILENAME);
+  const candidates = [];
+  const configuredGatewayRootDir = firstNonEmptyString(process.env.GATEWAY_ROOT_DIR);
+  if (configuredGatewayRootDir) {
+    candidates.push(configuredGatewayRootDir);
+  }
+  candidates.push(DEFAULT_GATEWAY_ROOT_DIR);
+  candidates.push(process.cwd());
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    const resolved = path.resolve(candidate);
+    const dbPath = path.resolve(resolved, '.data', FEISHU_USER_BINDING_DB_FILENAME);
+    if (fs.existsSync(dbPath)) {
+      return dbPath;
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    const resolved = path.resolve(candidate);
+    if (fs.existsSync(path.resolve(resolved, '.data')) || fs.existsSync(resolved)) {
+      return path.resolve(resolved, '.data', FEISHU_USER_BINDING_DB_FILENAME);
+    }
+  }
+
+  return path.resolve(process.cwd(), '.data', FEISHU_USER_BINDING_DB_FILENAME);
 }
 
 function getFeishuUserBinding(filePath, gatewayUserId) {
@@ -2230,6 +2281,7 @@ async function resolveFeishuUserAccessTokenForOperation(args, operation) {
       operation,
       reason: 'feishu_user_binding_missing',
       gatewayUserId,
+      bindingDbPath,
       requiredScopes,
       message: 'Feishu user authorization required. Run auth start-device-auth, finish auth poll-device-auth, then retry the original command.',
     });
@@ -2244,6 +2296,7 @@ async function resolveFeishuUserAccessTokenForOperation(args, operation) {
         operation,
         reason: 'feishu_user_scope_missing',
         gatewayUserId,
+        bindingDbPath,
         requiredScopes,
         missingScopes,
         message: 'Feishu user authorization is missing required scopes. Run auth start-device-auth with the required scopes, finish auth poll-device-auth, then retry the original command.',
@@ -2389,6 +2442,7 @@ function buildFeishuAuthorizationRequiredResult(input) {
     authorization_required: true,
     reason: input.reason,
     gateway_user_id: input.gatewayUserId,
+    ...(input.bindingDbPath ? { binding_db_path: input.bindingDbPath } : {}),
     ...(input.requiredScopes?.length ? { required_scopes: input.requiredScopes } : {}),
     ...(input.missingScopes?.length ? { missing_scopes: input.missingScopes } : {}),
     next_action: {
