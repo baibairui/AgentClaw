@@ -551,6 +551,7 @@ export function buildCodexArgs(
   sandbox: 'full-auto' | 'none',
   provider: CliProvider = 'codex',
 ): string[] {
+  const promptAttachments = extractPromptAttachments(input.prompt);
   if (provider === 'opencode') {
     const args: string[] = ['run', '--format', 'json'];
     if (input.threadId?.trim()) {
@@ -559,7 +560,10 @@ export function buildCodexArgs(
     if (input.model?.trim()) {
       args.push('--model', input.model.trim());
     }
-    args.push(input.prompt);
+    for (const filePath of promptAttachments.filePaths) {
+      args.push('--file', filePath);
+    }
+    args.push(promptAttachments.sanitizedPrompt);
     return args;
   }
   const sandboxFlag = sandbox === 'none'
@@ -570,6 +574,9 @@ export function buildCodexArgs(
     ? ['exec', 'resume', input.threadId, '--json', sandboxFlag, '--skip-git-repo-check']
     : ['exec', '--json', sandboxFlag, '--skip-git-repo-check'];
 
+  for (const imagePath of promptAttachments.imagePaths) {
+    args.push('--image', imagePath);
+  }
   if (input.model) {
     args.push('--model', input.model);
   }
@@ -580,8 +587,54 @@ export function buildCodexArgs(
   if (input.search) {
     args.unshift('--search');
   }
-  args.push(input.prompt);
+  args.push(promptAttachments.sanitizedPrompt);
   return args;
+}
+
+function extractPromptAttachments(prompt: string): {
+  sanitizedPrompt: string;
+  imagePaths: string[];
+  filePaths: string[];
+} {
+  const seenImages = new Set<string>();
+  const seenFiles = new Set<string>();
+  const imagePaths: string[] = [];
+  const filePaths: string[] = [];
+  const keptLines: string[] = [];
+
+  for (const line of prompt.split('\n')) {
+    const imageMatch = line.match(/\blocal_image_path=([^\n\r]+)/);
+    if (imageMatch?.[1]) {
+      const filePath = imageMatch[1].trim();
+      if (filePath && !seenImages.has(filePath)) {
+        seenImages.add(filePath);
+        imagePaths.push(filePath);
+      }
+      if (filePath && !seenFiles.has(filePath)) {
+        seenFiles.add(filePath);
+        filePaths.push(filePath);
+      }
+      continue;
+    }
+
+    const fileMatch = line.match(/\blocal_(?:file|audio|media|sticker)_path=([^\n\r]+)/);
+    if (fileMatch?.[1]) {
+      const filePath = fileMatch[1].trim();
+      if (filePath && !seenFiles.has(filePath)) {
+        seenFiles.add(filePath);
+        filePaths.push(filePath);
+      }
+      continue;
+    }
+
+    keptLines.push(line);
+  }
+
+  return {
+    sanitizedPrompt: keptLines.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+    imagePaths,
+    filePaths,
+  };
 }
 
 export function buildCodexReviewArgs(

@@ -765,6 +765,61 @@ local_image_path=${sourcePath}`,
     expect(fs.readFileSync(match![1], 'utf8')).toBe('fake-image');
   });
 
+  it('stages inbound image attachments when the source path contains spaces', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-handler-inbound-image-space-'));
+    const workspaceDir = path.join(tempDir, 'workspace');
+    const sourceDir = path.join(tempDir, 'gateway cache');
+    const sourcePath = path.join(sourceDir, 'sample image.png');
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(sourcePath, Buffer.from('fake-image-space'));
+    sessionStore.createAgent('u1', {
+      agentId: 'a1',
+      name: '测试Agent',
+      workspaceDir,
+    });
+    sessionStore.setCurrentAgent('u1', 'a1');
+    const run = vi.fn(async () => ({ threadId: 'thread_space_1', rawOutput: '' }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({
+      channel: 'feishu',
+      userId: 'u1',
+      content: `[飞书图片] image_key=img_v3_demo
+message_id=om_1
+[飞书附件元数据]
+local_image_path=${sourcePath}`,
+    });
+
+    const runInput = run.mock.calls[0]?.[0];
+    expect(runInput).toBeTruthy();
+    const prompt = String(runInput?.prompt ?? '');
+    expect(prompt).not.toContain(sourcePath);
+    const match = prompt.match(/local_image_path=([^\n]+)/);
+    expect(match?.[1]).toBeTruthy();
+    expect(match?.[1]?.startsWith(workspaceDir)).toBe(true);
+    expect(fs.readFileSync(match![1], 'utf8')).toBe('fake-image-space');
+  });
+
   it('uses transcript text as the effective query when speech service continues inbound audio', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();

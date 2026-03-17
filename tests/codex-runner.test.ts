@@ -126,6 +126,61 @@ describe('buildCodexArgs', () => {
     ]);
   });
 
+  it('attaches local images to codex exec when prompt contains staged image paths', () => {
+    const args = buildCodexArgs(
+      {
+        prompt: `[飞书图片] image_key=img_1
+message_id=om_1
+[飞书附件元数据]
+local_image_path=/tmp/workspace/.gateway-inbox/img-1.png`,
+        workdir: '/tmp/agent-image',
+      },
+      'full-auto',
+    );
+
+    expect(args).toEqual([
+      '--cd',
+      '/tmp/agent-image',
+      'exec',
+      '--json',
+      '--full-auto',
+      '--skip-git-repo-check',
+      '--image',
+      '/tmp/workspace/.gateway-inbox/img-1.png',
+      `[飞书图片] image_key=img_1
+message_id=om_1
+[飞书附件元数据]`,
+    ]);
+  });
+
+  it('deduplicates repeated local image paths in the prompt', () => {
+    const args = buildCodexArgs(
+      {
+        prompt: `first
+local_image_path=/tmp/a.png
+second
+local_image_path=/tmp/a.png
+local_image_path=/tmp/b.png`,
+      },
+      'full-auto',
+    );
+
+    expect(args).toContain('--image');
+    expect(args.filter((item) => item === '--image')).toHaveLength(2);
+    expect(args).toEqual([
+      'exec',
+      '--json',
+      '--full-auto',
+      '--skip-git-repo-check',
+      '--image',
+      '/tmp/a.png',
+      '--image',
+      '/tmp/b.png',
+      `first
+second`,
+    ]);
+  });
+
   it('does not modify args when reminder skill context is provided', () => {
     const args = buildCodexArgs(
       {
@@ -168,6 +223,33 @@ describe('buildCodexArgs', () => {
       '--model',
       'openai/gpt-5',
       'hello',
+    ]);
+  });
+
+  it('attaches local files to opencode run and strips local path lines from the prompt', () => {
+    const args = buildCodexArgs(
+      {
+        prompt: `[飞书图片] image_key=img_1
+message_id=om_1
+[飞书附件元数据]
+local_image_path=/tmp/workspace/.gateway-inbox/img-1.png`,
+        model: 'openai/gpt-5',
+      },
+      'full-auto',
+      'opencode',
+    );
+
+    expect(args).toEqual([
+      'run',
+      '--format',
+      'json',
+      '--model',
+      'openai/gpt-5',
+      '--file',
+      '/tmp/workspace/.gateway-inbox/img-1.png',
+      `[飞书图片] image_key=img_1
+message_id=om_1
+[飞书附件元数据]`,
     ]);
   });
 });

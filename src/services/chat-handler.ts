@@ -419,7 +419,7 @@ function rewriteSandboxWorkspacePath(rawPath: string, workspaceDir: string): str
 }
 
 async function stageInboundLocalPaths(prompt: string, workspaceDir: string): Promise<string> {
-  const matches = Array.from(prompt.matchAll(/\b(local_(?:image|file|audio|media|sticker)_path)=([^\s]+)/g));
+  const matches = Array.from(prompt.matchAll(/\b(local_(?:image|file|audio|media|sticker)_path)=([^\n\r]+)/g));
   if (matches.length === 0) {
     return prompt;
   }
