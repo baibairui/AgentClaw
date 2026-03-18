@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -97,10 +96,13 @@ function writeIfChanged(filePath: string, content: string): void {
 }
 
 function defaultGlobalSkillRoots(): string[] {
-  const homeDir = process.env.HOME?.trim() || os.homedir();
+  const gatewayRootDir = process.env.GATEWAY_ROOT_DIR?.trim()
+    ? path.resolve(process.env.GATEWAY_ROOT_DIR.trim())
+    : path.resolve(process.cwd());
+  const runtimeHomeDir = path.join(gatewayRootDir, '.codex-runtime', 'home');
   return [
-    path.join(homeDir, '.codex', 'skills'),
-    path.join(homeDir, '.agents', 'skills'),
+    path.join(runtimeHomeDir, '.codex', 'skills'),
+    path.join(runtimeHomeDir, '.agents', 'skills'),
   ];
 }
 
