@@ -24,7 +24,7 @@ const GATEWAY_LOCAL_PATH_KEYS = [
   'local_sticker_path',
 ] as const;
 
-type Channel = 'wecom' | 'feishu';
+type Channel = 'wecom' | 'feishu' | 'weixin';
 
 interface SessionStoreLike {
   getCurrentAgent(userId: string): AgentRecord;

@@ -1,4 +1,4 @@
-type Channel = 'wecom' | 'feishu';
+type Channel = 'wecom' | 'feishu' | 'weixin';
 type CliProvider = 'codex' | 'opencode';
 
 type FeishuCardTemplate = 'blue' | 'wathet' | 'turquoise' | 'green' | 'yellow' | 'orange' | 'red' | 'purple' | 'grey';

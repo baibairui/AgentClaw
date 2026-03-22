@@ -33,7 +33,7 @@ export class SpeechService {
 
   async processInboundAudio(input: {
     prompt: string;
-    channel: 'wecom' | 'feishu';
+    channel: 'wecom' | 'feishu' | 'weixin';
     userId: string;
     workspaceDir: string;
   }): Promise<SpeechServiceResult | undefined> {

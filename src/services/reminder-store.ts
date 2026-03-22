@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
-export type ReminderChannel = 'wecom' | 'feishu';
+export type ReminderChannel = 'wecom' | 'feishu' | 'weixin';
 export type ReminderStatus = 'pending' | 'sent';
 
 export interface ReminderRecord {
@@ -134,7 +134,7 @@ export class ReminderStore {
   private mapRow(row: Record<string, unknown>): ReminderRecord {
     return {
       id: String(row.id ?? ''),
-      channel: row.channel === 'feishu' ? 'feishu' : 'wecom',
+      channel: row.channel === 'feishu' ? 'feishu' : row.channel === 'weixin' ? 'weixin' : 'wecom',
       userId: String(row.userId ?? ''),
       message: String(row.message ?? ''),
       createdAt: Number(row.createdAt ?? 0),

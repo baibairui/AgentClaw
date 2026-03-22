@@ -3,7 +3,7 @@ import path from 'node:path';
 import { formatCommandOutboundMessage } from './feishu-command-cards.js';
 import { getCliProviderSpec, type CliProvider } from './cli-provider.js';
 
-type Channel = 'wecom' | 'feishu';
+type Channel = 'wecom' | 'feishu' | 'weixin';
 
 interface StartCodexDeviceLoginInput {
   provider?: CliProvider;

@@ -24,7 +24,7 @@ export interface CodexRunInput {
   gatewayUserId?: string;
   reminderToolContext?: {
     dbPath: string;
-    channel: 'wecom' | 'feishu';
+    channel: 'wecom' | 'feishu' | 'weixin';
     userId: string;
     agentId: string;
   };
