@@ -270,7 +270,7 @@ describe('CodexRunner active control', () => {
     vi.mocked(spawn).mockReturnValue(child as never);
 
     const runner = new CodexRunner({ codexBin: 'codex' });
-    const active = runner.runWithControl({ prompt: 'hello' });
+    const active = runner.runWithControl({ prompt: 'hello', workdir: '/tmp/agent-active-control' });
 
     expect(typeof active.stop).toBe('function');
     expect(child.stdin.write).toHaveBeenCalled();
@@ -281,7 +281,7 @@ describe('CodexRunner active control', () => {
     vi.mocked(spawn).mockReturnValue(child as never);
 
     const runner = new CodexRunner({ codexBin: 'codex', timeoutMs: 1_000 });
-    const active = runner.runWithControl({ prompt: 'hello' });
+    const active = runner.runWithControl({ prompt: 'hello', workdir: '/tmp/agent-active-control' });
 
     await tick();
     expect(String(child.stdin.write.mock.calls[0]?.[0] ?? '')).toContain('"method":"initialize"');
@@ -328,7 +328,7 @@ describe('CodexRunner active control', () => {
     const onMessage = vi.fn();
 
     const runner = new CodexRunner({ codexBin: 'codex', timeoutMs: 1_000 });
-    const active = runner.runWithControl({ prompt: 'hello', onMessage });
+    const active = runner.runWithControl({ prompt: 'hello', workdir: '/tmp/agent-active-control', onMessage });
 
     await tick();
     child.stdout.write(`${JSON.stringify({ id: 1, result: { ok: true } })}\n`);
@@ -984,7 +984,7 @@ describe('CodexRunner opencode config repair', () => {
       timeoutMs: 1_000,
     });
 
-    const resultPromise = runner.run({ prompt: 'hello' });
+    const resultPromise = runner.runForSystem({ prompt: 'hello' });
     child.stdout.write(`${JSON.stringify({ type: 'text', sessionID: 'sess_123', text: 'ok' })}\n`);
     child.emit('close', 0);
 
@@ -1003,6 +1003,64 @@ describe('CodexRunner opencode config repair', () => {
 });
 
 describe('CodexRunner', () => {
+  it('rejects agent runs without an explicit workspaceDir', async () => {
+    vi.mocked(spawn).mockReset();
+    const runner = new CodexRunner({
+      codexBin: 'codex',
+      workdir: '/tmp/agents-root',
+    });
+
+    expect(() => runner.run({
+      prompt: 'hello',
+    })).toThrow(/requires an explicit agent workspaceDir/i);
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('rejects agent reviews without an explicit workspaceDir', async () => {
+    vi.mocked(spawn).mockReset();
+    const runner = new CodexRunner({
+      codexBin: 'codex',
+      workdir: '/tmp/agents-root',
+    });
+
+    expect(() => runner.review({
+      mode: 'uncommitted',
+    })).toThrow(/requires an explicit agent workspaceDir/i);
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('allows system runs to inherit the configured global workdir', async () => {
+    const child = createMockChildProcess();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const runner = new CodexRunner({
+      codexBin: 'codex',
+      workdir: '/tmp/agents-root',
+      timeoutMs: 50,
+    });
+
+    const runPromise = runner.runForSystem({
+      prompt: 'hello',
+      search: true,
+    });
+
+    child.stdout.write(`${JSON.stringify({ type: 'thread.started', thread_id: 'thread_system' })}\n`);
+    child.emit('close', 0);
+
+    await expect(runPromise).resolves.toEqual({
+      threadId: 'thread_system',
+      rawOutput: `${JSON.stringify({ type: 'thread.started', thread_id: 'thread_system' })}\n`,
+    });
+
+    expect(spawn).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ cwd: '/tmp/agents-root' }),
+    );
+  });
+
   it('fails before spawn when the configured codex binary is unavailable', async () => {
     vi.mocked(spawn).mockReset();
     const runner = new CodexRunner({
@@ -1013,6 +1071,7 @@ describe('CodexRunner', () => {
     await expect(runner.run({
       prompt: 'hello',
       workdir: '/tmp/agent-a',
+      search: true,
     })).rejects.toThrow(/codex executable not found/i);
 
     expect(spawn).not.toHaveBeenCalled();
@@ -1031,6 +1090,8 @@ describe('CodexRunner', () => {
 
     const runPromise = runner.run({
       prompt: 'hello',
+      workdir: '/tmp/agent-active-timeout',
+      search: true,
       onMessage: vi.fn(),
     });
 

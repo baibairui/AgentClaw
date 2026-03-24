@@ -16,7 +16,7 @@ interface AgentWorkspaceManagerLike {
 }
 
 interface CodexRunnerLike {
-  run(input: {
+  runForSystem(input: {
     prompt: string;
     model?: string;
     search?: boolean;
@@ -122,7 +122,7 @@ export class MemorySteward {
     });
 
     try {
-      await this.codexRunner.run({
+      await this.codexRunner.runForSystem({
         prompt,
         model: this.model,
         search: false,

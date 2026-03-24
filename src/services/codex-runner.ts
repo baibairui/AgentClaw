@@ -193,12 +193,26 @@ export class CodexRunner {
     return this.runWithControl(input).result;
   }
 
+  runForSystem(input: CodexRunInput): Promise<CodexRunResult> {
+    return this.runWithControlForSystem(input).result;
+  }
+
   runWithControl(input: CodexRunInput): ControlledCodexRun {
+    const workdir = this.requireAgentWorkdir(input.workdir, 'runWithControl');
+    return this.runWithResolvedWorkdir(input, workdir);
+  }
+
+  runWithControlForSystem(input: CodexRunInput): ControlledCodexRun {
+    const workdir = input.workdir?.trim() || this.workdir;
+    return this.runWithResolvedWorkdir(input, workdir);
+  }
+
+  private runWithResolvedWorkdir(input: CodexRunInput, workdir: string): ControlledCodexRun {
     if (this.provider === 'codex' && this.codexRunTransport === 'app-server' && !input.search) {
-      return this.runWithAppServer(input);
+      return this.runWithAppServer(input, workdir);
     }
 
-    const args = buildCodexArgs(input, this.sandbox, this.provider);
+    const args = buildCodexArgs({ ...input, workdir }, this.sandbox, this.provider);
     const controlled = this.runJsonl({
       args,
       prompt: input.prompt,
@@ -211,7 +225,7 @@ export class CodexRunner {
         internalApiToken: this.internalApiToken,
         internalApiBaseUrl: this.internalApiBaseUrl,
       }),
-      workdir: input.workdir,
+      workdir,
       onMessage: input.onMessage,
       onThreadStarted: input.onThreadStarted,
       initialThreadId: input.threadId,
@@ -238,7 +252,17 @@ export class CodexRunner {
   }
 
   review(input: CodexReviewInput): Promise<{ rawOutput: string }> {
-    const args = buildCodexReviewArgs(input, this.sandbox, this.provider);
+    const workdir = this.requireAgentWorkdir(input.workdir, 'review');
+    return this.reviewWithResolvedWorkdir(input, workdir);
+  }
+
+  reviewForSystem(input: CodexReviewInput): Promise<{ rawOutput: string }> {
+    const workdir = input.workdir?.trim() || this.workdir;
+    return this.reviewWithResolvedWorkdir(input, workdir);
+  }
+
+  private reviewWithResolvedWorkdir(input: CodexReviewInput, workdir: string): Promise<{ rawOutput: string }> {
+    const args = buildCodexReviewArgs({ ...input, workdir }, this.sandbox, this.provider);
     const timeoutHint = input.prompt ?? input.target ?? input.mode;
     return this.runJsonl({
       args,
@@ -248,7 +272,7 @@ export class CodexRunner {
         gatewayRootDir: this.gatewayRootDir,
         internalApiToken: this.internalApiToken,
       }),
-      workdir: input.workdir,
+      workdir,
       onMessage: input.onMessage,
       requireThreadId: false,
       logMeta: {
@@ -257,6 +281,14 @@ export class CodexRunner {
         reviewTarget: input.target ?? '(none)',
       },
     }).result.then((result) => ({ rawOutput: result.rawOutput }));
+  }
+
+  private requireAgentWorkdir(workdir: string | undefined, operation: 'runWithControl' | 'review'): string {
+    const resolved = workdir?.trim();
+    if (resolved) {
+      return resolved;
+    }
+    throw new Error(`CodexRunner.${operation} requires an explicit agent workspaceDir`);
   }
 
   login(input: CodexLoginInput): Promise<void> {
@@ -558,8 +590,7 @@ export class CodexRunner {
     };
   }
 
-  private runWithAppServer(input: CodexRunInput): ControlledCodexRun {
-    const effectiveWorkdir = input.workdir ?? this.workdir;
+  private runWithAppServer(input: CodexRunInput, effectiveWorkdir: string): ControlledCodexRun {
     const env = buildCodexChildEnv(process.env, {
       reminderToolContext: input.reminderToolContext,
       browserAutomation: this.browserAutomation,
