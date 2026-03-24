@@ -15,6 +15,20 @@ export type WeixinInboundMessage = {
   context_token?: string;
 };
 
+export function splitWeixinOutboundText(text: string): string[] {
+  const normalized = text.replace(/\r\n?/g, '\n').trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const segments = normalized
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return segments.length > 0 ? segments : [normalized];
+}
+
 function ensureTrailingSlash(url: string): string {
   return url.endsWith('/') ? url : `${url}/`;
 }

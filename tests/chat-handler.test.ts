@@ -1124,6 +1124,38 @@ local_audio_path=${sourcePath}`,
     expect(sendText).toHaveBeenNthCalledWith(2, 'wecom', 'u1', '默认助手 ·\n✅ 已处理完成。');
   });
 
+  it('does not send received or done progress status in weixin channel', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    sessionStore.setSession('u1', 'default', 'thread_existing');
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: async (input: { onMessage?: (text: string) => void }) => {
+          input.onMessage?.('开始处理。');
+          return { threadId: 'thread_existing', rawOutput: '' };
+        },
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir: '/tmp/a1' }),
+        isSharedMemoryEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'weixin', userId: 'u1', content: 'hello' });
+
+    expect(sendText).not.toHaveBeenCalledWith('weixin', 'u1', '默认助手 ·\n⏳ 已接收请求，正在处理...');
+    expect(sendText).not.toHaveBeenCalledWith('weixin', 'u1', '默认助手 ·\n✅ 已处理完成。');
+    expect(sendText).toHaveBeenCalledWith('weixin', 'u1', '默认助手 ·\n开始处理。');
+  });
+
   it('patches the same feishu run card to stopped after stop', async () => {
     const sendText = vi.fn(async () => undefined);
     const sendTextWithResult = vi.fn(async (_channel: 'wecom' | 'feishu' | 'weixin', _userId: string, content: string) => {

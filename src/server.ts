@@ -31,7 +31,7 @@ import { OpenCodeAuthFlowManager, buildOpenCodeAuthSessionKey } from './services
 import { pushFeishuStartupHelp } from './services/startup-help.js';
 import { createSpeechService } from './services/speech-service-factory.js';
 import { WeComApi } from './services/wecom-api.js';
-import { WeixinApi, type WeixinInboundMessage } from './services/weixin-api.js';
+import { WeixinApi, splitWeixinOutboundText, type WeixinInboundMessage } from './services/weixin-api.js';
 import { FeishuApi } from './services/feishu-api.js';
 import { WeComCrypto } from './utils/wecom-crypto.js';
 import { appendFeishuAttachmentMetadata, extractFeishuBinaryRef } from './utils/feishu-inbound.js';
@@ -437,9 +437,12 @@ async function enqueueSendText(channel: 'wecom' | 'feishu' | 'weixin', userId: s
       const outboundText = structured
         ? `⚠️ 微信渠道暂不支持结构化消息，已退回为文本。\n${content}`
         : content;
-        await weixinApi.sendText(userId, outboundText, contextToken);
-        return undefined;
+      const outboundParts = splitWeixinOutboundText(outboundText);
+      for (const part of outboundParts) {
+        await weixinApi.sendText(userId, part, contextToken);
       }
+      return undefined;
+    }
     if (structured) {
       if (structured.op === 'recall') {
         if (channel === 'wecom') {

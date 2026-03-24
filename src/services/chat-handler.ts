@@ -592,6 +592,9 @@ async function sendAgentProgress(
   agent: { name: string },
   phase: 'received' | 'reminder' | 'done',
 ): Promise<void> {
+  if (channel === 'weixin' && (phase === 'received' || phase === 'done')) {
+    return;
+  }
   try {
     await deps.sendText(channel, userId, buildAgentProgressText(agent, phase));
   } catch (error) {
