@@ -6,7 +6,7 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('OpenCodeAuthFlow');
 
-type Channel = 'wecom' | 'feishu';
+type Channel = 'wecom' | 'feishu' | 'weixin';
 
 interface OpenCodeAuthSession {
   key: string;

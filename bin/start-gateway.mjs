@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import readline from 'node:readline/promises';
 import { buildStartupFailureHints } from './lib/install-hints.mjs';
 
 const mode = process.argv[2] === 'start' ? 'start' : 'dev';
@@ -19,6 +20,69 @@ function runConfigCheck() {
       resolve(code === 0);
     });
   });
+}
+
+function resolveGatewayRootDir() {
+  const raw = process.env.GATEWAY_ROOT_DIR?.trim();
+  if (!raw) {
+    return cwd;
+  }
+  return path.isAbsolute(raw) ? raw : path.resolve(cwd, raw);
+}
+
+function resolveWeixinSessionPath() {
+  return path.join(resolveGatewayRootDir(), '.data', 'weixin-session.json');
+}
+
+function shouldRequireWeixinLogin() {
+  if (process.env.WEIXIN_ENABLED !== 'true') {
+    return false;
+  }
+  if (process.env.WEIXIN_BOT_TOKEN?.trim()) {
+    return false;
+  }
+  return !fs.existsSync(resolveWeixinSessionPath());
+}
+
+async function promptWeixinLogin() {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.error('已启用微信渠道，但尚未登录微信。请先执行：npm run weixin:login');
+    return false;
+  }
+
+  console.log('');
+  console.log('检测到已启用微信渠道，但当前还没有微信登录会话。');
+  console.log(`会话文件预期位置：${resolveWeixinSessionPath()}`);
+  console.log('需要先扫码登录微信，才能启动个人微信渠道。');
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  const answer = await rl.question('现在执行微信扫码登录吗？[Y/n] ');
+  rl.close();
+
+  if (answer.trim().toLowerCase() === 'n') {
+    console.error('已取消启动。你可以稍后手动执行：npm run weixin:login');
+    return false;
+  }
+
+  const ok = await new Promise((resolve) => {
+    const child = spawn('npm', ['run', 'weixin:login'], {
+      cwd,
+      stdio: 'inherit',
+    });
+    child.on('exit', (code) => {
+      resolve(code === 0);
+    });
+  });
+
+  if (!ok) {
+    console.error('微信登录未完成，启动已中止。');
+    return false;
+  }
+
+  return true;
 }
 
 function hasDisplayServer() {
@@ -78,6 +142,13 @@ if (!ok) {
     console.error(line);
   }
   process.exit(1);
+}
+
+if (shouldRequireWeixinLogin()) {
+  const loginReady = await promptWeixinLogin();
+  if (!loginReady) {
+    process.exit(1);
+  }
 }
 
 if (mode === 'start') {

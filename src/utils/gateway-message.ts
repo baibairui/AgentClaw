@@ -1,4 +1,4 @@
-type Channel = 'wecom' | 'feishu';
+type Channel = 'wecom' | 'feishu' | 'weixin';
 
 export type GatewayStructuredMessage =
   | {

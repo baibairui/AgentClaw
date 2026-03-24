@@ -170,7 +170,7 @@ function renderReminderToolScript(): string {
     '}',
     '',
     'function requireChannel(value) {',
-    "  if (value === 'wecom' || value === 'feishu') {",
+    "  if (value === 'wecom' || value === 'feishu' || value === 'weixin') {",
     '    return value;',
     '  }',
     "  fail('invalid GATEWAY_REMINDER_CHANNEL');",

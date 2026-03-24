@@ -1,5 +1,6 @@
-type Channel = 'wecom' | 'feishu';
+type Channel = 'wecom' | 'feishu' | 'weixin';
 type CliProvider = 'codex' | 'opencode';
+type RunStatus = 'running' | 'stopping' | 'stopped' | 'stop_failed' | 'completed';
 
 type FeishuCardTemplate = 'blue' | 'wathet' | 'turquoise' | 'green' | 'yellow' | 'orange' | 'red' | 'purple' | 'grey';
 
@@ -907,6 +908,59 @@ export function formatCommandOutboundMessage(channel: Channel, commandName: stri
   return buildFeishuInteractiveMessage(buildFeishuInteractiveCommandCard(commandName, normalized));
 }
 
+export function buildFeishuRunCardMessage(input: {
+  runId: string;
+  agentName: string;
+  provider: CliProvider;
+  status: RunStatus;
+  startedAt: number;
+  lastActivityAt: number;
+  threadId?: string;
+}): string {
+  const statusMap: Record<RunStatus, { title: string; template: FeishuCardTemplate; summary: string }> = {
+    running: { title: '处理中', template: 'turquoise', summary: '正在为你处理当前请求' },
+    stopping: { title: '正在停止', template: 'yellow', summary: '正在结束当前任务' },
+    stopped: { title: '已停止', template: 'grey', summary: '当前任务已停止' },
+    stop_failed: { title: '停止未完成', template: 'orange', summary: '停止请求未成功完成' },
+    completed: { title: '已完成', template: 'green', summary: '当前任务已处理完成' },
+  };
+  const statusMeta = statusMap[input.status];
+  const elements: Array<Record<string, unknown>> = [
+    buildFeishuTextBlock(statusMeta.summary),
+  ];
+  if (input.status === 'running') {
+    elements.push(
+      ...buildValueButtonRows([
+        {
+          label: '结束',
+          type: 'danger',
+          value: {
+            gateway_cmd: `/run stop ${input.runId}`,
+            command: `/run stop ${input.runId}`,
+            text: `/run stop ${input.runId}`,
+            run_id: input.runId,
+          },
+        },
+      ], 1),
+    );
+  }
+  return buildFeishuInteractiveMessage({
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true,
+      update_multi: true,
+    },
+    header: {
+      template: statusMeta.template,
+      title: {
+        tag: 'plain_text',
+        content: statusMeta.title,
+      },
+    },
+    elements,
+  });
+}
+
 export function buildFeishuLoginChoiceMessage(input: {
   provider?: CliProvider;
   providerLabel?: string;
@@ -1061,10 +1115,6 @@ export function buildFeishuOpenCodeInputFallbackMessage(input: {
       {
         tag: 'form',
         name: 'opencode_oauth_input',
-        value: {
-          gateway_action: 'opencode_login.submit_auth_input',
-          provider_id: input.provider,
-        },
         elements: [
           {
             tag: 'input',
@@ -1104,11 +1154,13 @@ export function buildFeishuApiLoginFormMessage(defaults?: {
   provider?: CliProvider;
   baseUrl?: string;
   model?: string;
+  reasoningEffort?: string;
 }): string {
   const provider = defaults?.provider ?? 'codex';
   const providerLabel = provider === 'opencode' ? 'OpenCode' : 'Codex';
   const baseUrl = defaults?.baseUrl?.trim() || (provider === 'opencode' ? 'https://api.openai.com/v1' : 'https://codex.ai02.cn');
   const model = defaults?.model?.trim() || (provider === 'opencode' ? 'gpt-5' : 'gpt-5.3-codex');
+  const reasoningEffort = defaults?.reasoningEffort?.trim() || '';
   return buildFeishuInteractiveMessage({
     config: {
       wide_screen_mode: true,
@@ -1124,16 +1176,17 @@ export function buildFeishuApiLoginFormMessage(defaults?: {
     elements: [
       buildFeishuTitleBlock(`写入 ${providerLabel} API 配置`, '提交后会覆盖当前项目内的登录配置。'),
       buildFeishuTipsNote(`建议填写：base_url=${baseUrl}，model=${model}`),
+      ...(provider === 'opencode'
+        ? [buildFeishuTipsNote('可选：reasoning effort 支持 none / minimal / low / medium / high / xhigh。')]
+        : []),
       {
         tag: 'form',
         name: 'codex_api_login',
-        value: {
-          gateway_action: 'codex_login.submit_api_credentials',
-        },
         elements: [
           {
             tag: 'input',
             name: 'base_url',
+            default_value: baseUrl,
             label_position: 'top',
             label: {
               tag: 'plain_text',
@@ -1162,6 +1215,7 @@ export function buildFeishuApiLoginFormMessage(defaults?: {
           {
             tag: 'input',
             name: 'model',
+            default_value: model,
             label_position: 'top',
             label: {
               tag: 'plain_text',
@@ -1173,6 +1227,23 @@ export function buildFeishuApiLoginFormMessage(defaults?: {
             },
             max_length: 120,
           },
+          ...(provider === 'opencode'
+            ? [{
+                tag: 'input',
+                name: 'reasoning_effort',
+                default_value: reasoningEffort,
+                label_position: 'top',
+                label: {
+                  tag: 'plain_text',
+                  content: 'Reasoning Effort',
+                },
+                placeholder: {
+                  tag: 'plain_text',
+                  content: 'none | minimal | low | medium | high | xhigh',
+                },
+                max_length: 20,
+              } satisfies Record<string, unknown>]
+            : []),
           {
             tag: 'button',
             name: 'submit_api_login',
@@ -1208,6 +1279,7 @@ export function buildFeishuApiLoginResultMessage(input: {
   baseUrl?: string;
   model?: string;
   maskedApiKey?: string;
+  reasoningEffort?: string;
   message: string;
 }): string {
   const providerLabel = input.provider === 'opencode' ? 'OpenCode' : 'Codex';
@@ -1228,6 +1300,7 @@ export function buildFeishuApiLoginResultMessage(input: {
       buildFeishuFieldGrid([
         { label: 'API URL', value: input.baseUrl ?? '' },
         { label: 'Model', value: input.model ?? '' },
+        { label: 'Reasoning', value: input.reasoningEffort ?? '' },
         { label: 'API Key', value: input.maskedApiKey ?? (input.ok ? '已配置' : '') },
       ]),
       ...buildValueButtonRows(input.ok
@@ -1250,6 +1323,7 @@ export function buildFeishuApiLoginResultMessage(input: {
                 gateway_action: 'codex_login.open_api_form',
                 base_url: input.baseUrl ?? '',
                 model: input.model ?? '',
+                reasoning_effort: input.reasoningEffort ?? '',
               },
             },
           ]),

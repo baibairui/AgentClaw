@@ -31,6 +31,7 @@ import { OpenCodeAuthFlowManager, buildOpenCodeAuthSessionKey } from './services
 import { pushFeishuStartupHelp } from './services/startup-help.js';
 import { createSpeechService } from './services/speech-service-factory.js';
 import { WeComApi } from './services/wecom-api.js';
+import { WeixinApi, splitWeixinOutboundText, type WeixinInboundMessage } from './services/weixin-api.js';
 import { FeishuApi } from './services/feishu-api.js';
 import { WeComCrypto } from './utils/wecom-crypto.js';
 import { appendFeishuAttachmentMetadata, extractFeishuBinaryRef } from './utils/feishu-inbound.js';
@@ -46,6 +47,8 @@ const log = createLogger('Server');
 const gatewayRootDir = resolveGatewayRootDir(config.gatewayRootDir);
 const dataDir = path.join(gatewayRootDir, '.data');
 fs.mkdirSync(dataDir, { recursive: true });
+const weixinSessionPath = path.join(dataDir, 'weixin-session.json');
+const weixinSession = loadWeixinSession(weixinSessionPath);
 const agentsDir = resolveAgentsDir({
   configuredDir: config.codexAgentsDir,
   dataDir,
@@ -93,6 +96,7 @@ log.info('服务启动初始化...', {
   apiRetryOnTimeout: config.apiRetryOnTimeout,
   wecomEnabled: config.wecomEnabled,
   feishuEnabled: config.feishuEnabled,
+  weixinEnabled: config.weixinEnabled,
   feishuLongConnection: feishuStatusSummary.mode === 'long-connection',
   feishuApiTimeoutMs: config.feishuApiTimeoutMs,
   feishuStatus: feishuStatusSummary,
@@ -102,7 +106,7 @@ log.debug('数据目录已就绪', { dataDir });
 const browserManager = new BrowserManager({
   profileDir: resolveRuntimeDir(config.browserProfileDir, path.join(dataDir, 'browser', 'profile')),
 });
-const internalApiToken = randomUUID();
+const internalApiToken = process.env.GATEWAY_INTERNAL_API_TOKEN?.trim() || randomUUID();
 const browserAutomation = config.browserAutomationEnabled
   ? createBrowserAutomationBackend(browserManager)
   : undefined;
@@ -220,6 +224,23 @@ const feishuBotIdentity = await resolveFeishuBotIdentity({
   appSecret: config.feishuAppSecret,
   timeoutMs: config.feishuApiTimeoutMs,
 });
+const resolvedWeixinBaseUrl = weixinSession?.baseUrl || config.weixinBaseUrl;
+const resolvedWeixinBotToken = weixinSession?.botToken || config.weixinBotToken;
+
+const weixinApi = config.weixinEnabled && resolvedWeixinBotToken
+  ? new WeixinApi({
+    baseUrl: resolvedWeixinBaseUrl,
+    botToken: resolvedWeixinBotToken,
+    timeoutMs: config.apiTimeoutMs,
+  })
+  : undefined;
+if (weixinApi) {
+  log.debug('WeixinApi 已初始化', { baseUrl: resolvedWeixinBaseUrl, sessionPath: weixinSessionPath });
+} else if (config.weixinEnabled) {
+  log.warn('Weixin 已启用，但未找到 bot token；可先执行 npm run weixin:login', {
+    sessionPath: weixinSessionPath,
+  });
+}
 
 const wecomCrypto = config.wecomEnabled && config.token && config.encodingAesKey && config.corpId
   ? new WeComCrypto({
@@ -233,13 +254,16 @@ if (wecomCrypto) {
 }
 
 const userTaskQueue = new Map<string, Promise<void>>();
-const outboundSendQueue = new Map<string, Promise<void>>();
+const outboundSendQueue = new Map<string, Promise<unknown>>();
 const inboundReplyContext = new Map<string, {
   messageId?: string;
   allowReply: boolean;
   replyTargetId?: string;
   replyTargetType?: 'open_id' | 'chat_id';
 }>();
+const weixinContextTokenStore = new Map<string, string>();
+const weixinStatePath = path.join(dataDir, 'weixin-state.json');
+let weixinCursor = loadWeixinCursor(weixinStatePath);
 
 interface InboundEnrichResult {
   content: string;
@@ -443,11 +467,15 @@ function runInUserQueue(userId: string, task: () => Promise<void>): Promise<void
   return next;
 }
 
-function enqueueOutboundSend(
-  channel: 'wecom' | 'feishu',
+function isImmediateControlCommand(content: string): boolean {
+  return /^\/run\s+stop\s+\S+/i.test(content.trim());
+}
+
+function enqueueOutboundSend<T>(
+  channel: 'wecom' | 'feishu' | 'weixin',
   userId: string,
-  task: () => Promise<void>,
-): Promise<void> {
+  task: () => Promise<T>,
+): Promise<T> {
   const key = `${channel}:${userId}`;
   const previous = outboundSendQueue.get(key) ?? Promise.resolve();
   const next = previous
@@ -462,12 +490,12 @@ function enqueueOutboundSend(
   return next;
 }
 
-async function sendText(channel: 'wecom' | 'feishu', userId: string, content: string): Promise<void> {
+async function sendText(channel: 'wecom' | 'feishu' | 'weixin', userId: string, content: string): Promise<void> {
   await enqueueSendText(channel, userId, content);
 }
 
 async function sendStreamingText(
-  channel: 'wecom' | 'feishu',
+  channel: 'wecom' | 'feishu' | 'weixin',
   userId: string,
   _streamId: string,
   content: string,
@@ -476,15 +504,32 @@ async function sendStreamingText(
   await enqueueSendText(channel, userId, content);
 }
 
-async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, content: string): Promise<void> {
+async function enqueueSendText(channel: 'wecom' | 'feishu' | 'weixin', userId: string, content: string): Promise<string | undefined> {
   const structured = parseGatewayStructuredMessage(content);
-  await enqueueOutboundSend(channel, userId, async () => {
+  return enqueueOutboundSend(channel, userId, async () => {
     const replyContext = inboundReplyContext.get(`${channel}:${userId}`);
     const replyToMessageId = replyContext?.allowReply ? replyContext.messageId : undefined;
     const feishuReplyTarget = {
       receiveId: replyContext?.replyTargetId ?? userId,
       receiveIdType: replyContext?.replyTargetType ?? 'open_id',
     } as const;
+    if (channel === 'weixin') {
+      if (!weixinApi) {
+        throw new Error('weixin api not configured');
+      }
+      const contextToken = weixinContextTokenStore.get(userId);
+      if (!contextToken) {
+        throw new Error(`missing weixin context token for ${userId}`);
+      }
+      const outboundText = structured
+        ? `⚠️ 微信渠道暂不支持结构化消息，已退回为文本。\n${content}`
+        : content;
+      const outboundParts = splitWeixinOutboundText(outboundText);
+      for (const part of outboundParts) {
+        await weixinApi.sendText(userId, part, contextToken);
+      }
+      return undefined;
+    }
     if (structured) {
       if (structured.op === 'recall') {
         if (channel === 'wecom') {
@@ -492,13 +537,13 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
             throw new Error('wecom api not configured');
           }
           await weComApi.sendText(userId, '❌ 企微暂不支持 recall 消息操作。');
-          return;
+          return undefined;
         }
         if (!feishuApi) {
           throw new Error('feishu api not configured');
         }
         await feishuApi.recallMessage(structured.message_id);
-        return;
+        return undefined;
       }
       if (!isGatewayMessageTypeSupported(channel, structured.msg_type)) {
         const message = `❌ 不支持的 ${channel === 'feishu' ? '飞书' : '企微'} msg_type：${structured.msg_type}`;
@@ -507,15 +552,14 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
             throw new Error('wecom api not configured');
           }
           await weComApi.sendText(userId, message);
-          return;
+          return undefined;
         }
         if (!feishuApi) {
           throw new Error('feishu api not configured');
         }
-        await feishuApi.sendText(feishuReplyTarget, message, {
+        return feishuApi.sendText(feishuReplyTarget, message, {
           replyToMessageId,
         });
-        return;
       }
       if (channel === 'wecom') {
         if (!weComApi) {
@@ -523,13 +567,13 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
         }
         if (structured.op !== 'send') {
           await weComApi.sendText(userId, `❌ 企微暂不支持 ${structured.op} 消息操作。`);
-          return;
+          return undefined;
         }
         await weComApi.sendMessage(userId, {
           msgType: structured.msg_type,
           content: structured.content,
         });
-        return;
+        return undefined;
       }
       if (!feishuApi) {
         throw new Error('feishu api not configured');
@@ -537,27 +581,32 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
       const normalizedFeishuMessage = normalizeFeishuStructuredMessage(structured.msg_type, structured.content);
       const feishuReplyOptions = extractFeishuReplyOptions(normalizedFeishuMessage.content);
       if (structured.op === 'update') {
+        if (normalizedFeishuMessage.msgType === 'interactive') {
+          await feishuApi.patchCardMessage({
+            messageId: structured.message_id,
+            content: feishuReplyOptions.content,
+          });
+          return undefined;
+        }
         if (!isFeishuUpdateMessageType(normalizedFeishuMessage.msgType)) {
           const message = `❌ 不支持的飞书 update msg_type：${normalizedFeishuMessage.msgType}`;
-          await feishuApi.sendText(feishuReplyTarget, message, {
+          return feishuApi.sendText(feishuReplyTarget, message, {
             replyToMessageId,
           });
-          return;
         }
         await feishuApi.updateMessage({
           messageId: structured.message_id,
           msgType: normalizedFeishuMessage.msgType,
           content: feishuReplyOptions.content,
         });
-        return;
+        return undefined;
       }
-      await feishuApi.sendMessage(feishuReplyTarget, {
+      return feishuApi.sendMessage(feishuReplyTarget, {
         msgType: normalizedFeishuMessage.msgType,
         content: feishuReplyOptions.content,
         replyToMessageId,
         replyInThread: feishuReplyOptions.replyInThread,
       });
-      return;
     }
 
     if (channel === 'wecom') {
@@ -565,12 +614,12 @@ async function enqueueSendText(channel: 'wecom' | 'feishu', userId: string, cont
         throw new Error('wecom api not configured');
       }
       await weComApi.sendText(userId, content);
-      return;
+      return undefined;
     }
     if (!feishuApi) {
       throw new Error('feishu api not configured');
     }
-    await feishuApi.sendText(feishuReplyTarget, content, {
+    return feishuApi.sendText(feishuReplyTarget, content, {
       replyToMessageId,
     });
   });
@@ -590,6 +639,7 @@ const handleChatText = createChatHandler({
   defaultSearch: config.codexSearch,
   reminderDbPath,
   sendText,
+  sendTextWithResult: enqueueSendText,
   sendStreamingText,
   openCodeAuthFlowManager,
   speechService: createSpeechService({
@@ -651,7 +701,67 @@ const app = createApp({
   handleFeishuCardAction: appDepsHandleFeishuCardAction,
 });
 
-async function enrichInboundContent(channel: 'wecom' | 'feishu', content: string): Promise<InboundEnrichResult> {
+app.post('/internal/external-chat', async (req, res) => {
+  const token = req.header('x-gateway-internal-token');
+  if (!internalApiToken || token !== internalApiToken) {
+    res.status(403).json({ ok: false, error: 'forbidden' });
+    return;
+  }
+
+  const body = req.body as {
+    userId?: string;
+    content?: string;
+    channel?: 'wecom' | 'feishu';
+  } | undefined;
+  const userId = typeof body?.userId === 'string' ? body.userId.trim() : '';
+  const content = typeof body?.content === 'string' ? body.content.trim() : '';
+  const channel = body?.channel === 'wecom' ? 'wecom' : 'feishu';
+
+  if (!userId || !content) {
+    res.status(400).json({ ok: false, error: 'missing userId or content' });
+    return;
+  }
+
+  const collected: string[] = [];
+  const captureChatText = createChatHandler({
+    sessionStore,
+    rateLimitStore,
+    codexRunner,
+    codexHomeDir: resolveRunnerHomeDir(config.codexProvider),
+    agentWorkspaceManager,
+    workspacePublisher,
+    runnerEnabled: config.runnerEnabled,
+    defaultProvider: config.codexProvider,
+    resolveDefaultModel: resolveChatDefaultModel,
+    resolveRunner,
+    defaultSearch: config.codexSearch,
+    reminderDbPath,
+    sendText: async (_channel, _userId, outbound) => {
+      collected.push(outbound);
+    },
+    openCodeAuthFlowManager,
+    speechService: createSpeechService({
+      speech: config.speech,
+      apiTimeoutMs: config.apiTimeoutMs,
+    }),
+  });
+
+  try {
+    const sessionUserKey = resolveUserKey(userId);
+    await runInUserQueue(sessionUserKey, async () => {
+      await captureChatText({ channel, userId, content });
+    });
+    res.json({ ok: true, messages: collected });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      messages: collected,
+    });
+  }
+});
+
+async function enrichInboundContent(channel: 'wecom' | 'feishu' | 'weixin', content: string): Promise<InboundEnrichResult> {
   if (channel !== 'feishu' || !feishuApi) {
     return {
       content,
@@ -703,6 +813,86 @@ async function enrichInboundContent(channel: 'wecom' | 'feishu', content: string
       errorMessage,
     };
   }
+}
+
+function extractWeixinText(message: WeixinInboundMessage): string {
+  const items = Array.isArray(message.item_list) ? message.item_list : [];
+  for (const item of items) {
+    if (item.type === 1 && item.text_item?.text) {
+      return item.text_item.text.trim();
+    }
+    if (item.type === 3 && item.voice_item?.text) {
+      return item.voice_item.text.trim();
+    }
+  }
+  return '';
+}
+
+function loadWeixinCursor(filePath: string): string {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as { cursor?: string };
+    return parsed.cursor?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+function loadWeixinSession(filePath: string): { baseUrl?: string; botToken?: string } | undefined {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as { baseUrl?: string; botToken?: string };
+    return {
+      baseUrl: parsed.baseUrl?.trim(),
+      botToken: parsed.botToken?.trim(),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function saveWeixinCursor(filePath: string, cursor: string): void {
+  fs.writeFileSync(filePath, JSON.stringify({ cursor }, null, 2), 'utf-8');
+}
+
+function startWeixinPoller(): void {
+  if (!weixinApi) {
+    return;
+  }
+  const poll = async () => {
+    try {
+      const result = await weixinApi.getUpdates(weixinCursor);
+      if (typeof result.get_updates_buf === 'string' && result.get_updates_buf) {
+        weixinCursor = result.get_updates_buf;
+        saveWeixinCursor(weixinStatePath, weixinCursor);
+      }
+      const messages = Array.isArray(result.msgs) ? result.msgs : [];
+      for (const msg of messages) {
+        const msgId = String(msg.message_id ?? '');
+        const text = extractWeixinText(msg);
+        const fromUserId = msg.from_user_id?.trim();
+        const contextToken = msg.context_token?.trim();
+        if (!fromUserId || !contextToken || !text) {
+          continue;
+        }
+        if (msgId && dedupStore.isDuplicate(`weixin:${msgId}`)) {
+          continue;
+        }
+        weixinContextTokenStore.set(fromUserId, contextToken);
+        const sessionUserKey = resolveUserKey(fromUserId);
+        await runInUserQueue(sessionUserKey, async () => {
+          await handleChatText({ channel: 'weixin', userId: fromUserId, content: text });
+        });
+      }
+    } catch (error) {
+      log.warn('Weixin poll failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setTimeout(poll, config.weixinPollIntervalMs);
+    }
+  };
+  void poll();
 }
 
 function mapFeishuResourceTypes(kind: 'image' | 'file' | 'audio' | 'media' | 'sticker'): Array<'image' | 'file'> {
@@ -786,10 +976,13 @@ app.listen(config.port, () => {
   }
   memorySteward.start();
   reminderDispatcher.start();
+  if (weixinApi) {
+    startWeixinPoller();
+  }
 });
 
 async function appDepsHandleText(input: {
-  channel: 'wecom' | 'feishu';
+  channel: 'wecom' | 'feishu' | 'weixin';
   userId: string;
   content: string;
   sourceMessageId?: string;
@@ -807,7 +1000,7 @@ async function appDepsHandleText(input: {
     return;
   }
   const sessionUserKey = resolveUserKey(input.userId);
-  await runInUserQueue(sessionUserKey, async () => {
+  const execute = async () => {
     const contextKey = `${input.channel}:${input.userId}`;
     inboundReplyContext.set(contextKey, {
       messageId: input.channel === 'feishu' ? input.sourceMessageId : undefined,
@@ -820,7 +1013,12 @@ async function appDepsHandleText(input: {
     } finally {
       inboundReplyContext.delete(contextKey);
     }
-  });
+  };
+  if (isImmediateControlCommand(enrichResult.content)) {
+    await execute();
+    return;
+  }
+  await runInUserQueue(sessionUserKey, execute);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -932,6 +1130,7 @@ async function appDepsHandleFeishuCardAction(input: {
       provider: runtimeProvider,
       baseUrl: extractCardField(input.value, 'base_url'),
       model: extractCardField(input.value, 'model'),
+      reasoningEffort: extractCardField(input.value, 'reasoning_effort'),
     }));
     return;
   }
@@ -944,6 +1143,7 @@ async function appDepsHandleFeishuCardAction(input: {
         baseUrl: extractCardField(input.value, 'base_url') ?? '',
         apiKey: extractCardField(input.value, 'api_key') ?? '',
         model: extractCardField(input.value, 'model') ?? runtimeProviderSpec.defaultModel,
+        reasoningEffort: extractCardField(input.value, 'reasoning_effort'),
       });
       await sendText('feishu', input.userId, buildFeishuApiLoginResultMessage({
         provider: runtimeProvider,
@@ -952,6 +1152,7 @@ async function appDepsHandleFeishuCardAction(input: {
         baseUrl: result.baseUrl,
         model: result.model,
         maskedApiKey: result.maskedApiKey,
+        reasoningEffort: result.reasoningEffort,
       }));
     } catch (error) {
       await sendText('feishu', input.userId, buildFeishuApiLoginResultMessage({
@@ -960,6 +1161,7 @@ async function appDepsHandleFeishuCardAction(input: {
         message: error instanceof Error ? error.message : String(error),
         baseUrl: extractCardField(input.value, 'base_url') ?? '',
         model: extractCardField(input.value, 'model') ?? runtimeProviderSpec.defaultModel,
+        reasoningEffort: extractCardField(input.value, 'reasoning_effort'),
       }));
     }
     return;
