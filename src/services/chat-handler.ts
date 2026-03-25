@@ -3,6 +3,7 @@ import { commandNeedsAgentList, commandNeedsDetailedSessions, handleUserCommand,
 import path from 'node:path';
 import type { AgentListItem, AgentRecord, SessionListItem } from '../stores/session-store.js';
 import type { MemorySummarySnapshot } from './agent-workspace-manager.js';
+import { parseCodexJsonl } from './codex-runner.js';
 import { formatPaginatedCodexModelsText, loadCodexModels, resolveModelFromSnapshot } from './codex-models.js';
 import { AgentSkillManager } from './agent-skill-manager.js';
 import { startCodexDeviceLogin } from './codex-login-flow.js';
@@ -195,6 +196,16 @@ interface ChatHandlerDeps {
   };
   openCodeAuthFlowManager?: OpenCodeAuthFlowManager;
   speechService?: SpeechServiceLike;
+  ttsService?: {
+    synthesize(input: {
+      text: string;
+      workspaceDir: string;
+    }): Promise<{
+      filePath: string;
+      mimeType: string;
+      format: 'mp3' | 'wav' | 'flac';
+    }>;
+  };
 }
 
 interface ReminderTriggerInput {
@@ -353,6 +364,37 @@ function sanitizeOnboardingText(text: string): string {
     .replace(pathLike, '`[内部路径]`')
     .replace(mdFileLike, '`[记忆文件]`')
     .replace(/shared-memory|user\.md|soul\.md|memory\/|AGENTS\.md|agent\.md|profile\.md|preferences\.md|projects\.md|relationships\.md|decisions\.md|open-loops\.md/gi, '长期记忆');
+}
+
+type ReplyMode = 'audio';
+
+function extractReplyModeDirective(text: string): {
+  replyMode?: ReplyMode;
+  cleanedText: string;
+} {
+  if (!text.trim() || parseGatewayStructuredMessage(text)) {
+    return {
+      cleanedText: text,
+    };
+  }
+
+  const pattern = /(?:^|\n)\s*reply_mode\s*=\s*(audio)\s*(?=\n|$)/i;
+  const match = text.match(pattern);
+  if (!match) {
+    return {
+      cleanedText: text,
+    };
+  }
+
+  const cleanedText = text
+    .replace(/(?:^|\n)\s*reply_mode\s*=\s*audio\s*(?=\n|$)/ig, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return {
+    replyMode: 'audio',
+    cleanedText,
+  };
 }
 
 function resolveUserKey(userId: string): string {
@@ -648,8 +690,10 @@ function buildIdentityPatchPrompt(identityContent: string): string {
 
 const BROWSER_HANDOFF_TRIGGER_PROMPT = '浏览器人工接管触发条件包括但不限于：登录、验证码、扫码、支付确认、权限弹窗、高风险提交、页面目标歧义；出现这些情况时不要硬做完，而要明确请求用户接管或确认。';
 
-function buildFeishuOutboundMessageProtocolPrompt(userPrompt: string): string {
-  return [
+function buildFeishuOutboundMessageProtocolPrompt(userPrompt: string, options?: {
+  ttsEnabled?: boolean;
+}): string {
+  const lines = [
     '你必须遵循以下飞书回发协议：',
     '1. 默认输出普通文本，不要输出 JSON。',
     '2. 只有当用户明确要求“请发送/回发某种非文本消息”时，才输出单个 JSON 对象。',
@@ -676,6 +720,13 @@ function buildFeishuOutboundMessageProtocolPrompt(userPrompt: string): string {
     `12.4 ${BROWSER_HANDOFF_TRIGGER_PROMPT}`,
     '13. image/file/audio/media/sticker/share_chat/share_user 只在用户明确要求发送对应类型，或你已经拿到可发送资源（如 key、本地路径、分享对象ID）时使用。',
     '14. 如果不确定该用哪种类型，优先退回 text；一旦需要结构化展示，优先 interactive，不要再把 post 当默认选项。',
+  ];
+  if (options?.ttsEnabled) {
+    lines.push('15. 若用户明确要求“语音回复/念出来/发音频”，且你本次只需要给出普通文本答案，不要输出 JSON；请在最终答案最后单独追加一行 `reply_mode=audio`。');
+    lines.push('15.1 `reply_mode=audio` 仅在用户明确要求语音回复时使用；其他情况不要输出这行标记。');
+  }
+  return [
+    ...lines,
     '',
     '用户输入如下：',
     userPrompt,
@@ -703,9 +754,36 @@ function buildWeComOutboundMessageProtocolPrompt(userPrompt: string): string {
   ].join('\n');
 }
 
-function buildOutboundMessageProtocolPrompt(channel: Channel, userPrompt: string): string {
+function buildWeixinOutboundMessageProtocolPrompt(userPrompt: string): string {
+  return [
+    '你必须遵循以下个人微信回发协议：',
+    '1. 默认输出普通文本，不要输出 JSON。',
+    '2. 只有当用户明确要求“请发送/回发某种非文本消息”时，才输出单个 JSON 对象。',
+    '3. 输出 JSON 时禁止使用 markdown 代码块，禁止附加解释文字，只输出 JSON 本体。',
+    '4. JSON 格式必须为：{"__gateway_message__":true,"msg_type":"<type>","content":<object|string>}。',
+    '5. 个人微信常用 msg_type：text、image、voice、video、file。',
+    '6. 若用户只是发来图片/文件/语音并让你分析，不算“要求回发非文本”，此时必须回复普通文本分析结果。',
+    '7. 若用户输入中包含 local_image_path/local_file_path/local_audio_path/local_media_path，可先读取对应本地文件并给出分析结果；若明确需要回发个人微信非文本消息，且你已经拿到本地路径，可在 JSON content 中直接提供这些路径，网关会先上传再发送。',
+    '8. 个人微信没有 markdown / interactive 卡片能力；简单一句话优先 text，只有在用户明确要发送图片/语音/视频/文件时才用 image/voice/video/file。',
+    `8.1 ${BROWSER_HANDOFF_TRIGGER_PROMPT}`,
+    '9. image/voice/video/file 仅在用户明确要求发送对应类型，或你已拿到可发送资源（如本地路径、协议字段）时使用。',
+    '10. 如果不确定该用哪种类型，优先退回 text，不要为了“看起来高级”滥用媒体类型。',
+    '',
+    '用户输入如下：',
+    userPrompt,
+  ].join('\n');
+}
+
+function buildOutboundMessageProtocolPrompt(channel: Channel, userPrompt: string, options?: {
+  feishuTtsEnabled?: boolean;
+}): string {
   if (channel === 'feishu') {
-    return buildFeishuOutboundMessageProtocolPrompt(userPrompt);
+    return buildFeishuOutboundMessageProtocolPrompt(userPrompt, {
+      ttsEnabled: options?.feishuTtsEnabled,
+    });
+  }
+  if (channel === 'weixin') {
+    return buildWeixinOutboundMessageProtocolPrompt(userPrompt);
   }
   return buildWeComOutboundMessageProtocolPrompt(userPrompt);
 }
@@ -1842,8 +1920,10 @@ ${clipMessage(text, 500)}
       let lastStreamSend: Promise<void> = Promise.resolve();
       const streamId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       let streamedText = '';
+      let lastAgentRawOutput = '';
       let lastFeishuStreamFlushAt = 0;
       let lastFeishuStreamSnapshot = '';
+      let feishuAudioOnlyMode = false;
       const initialRuntimeThreadId = activeOnboarding
         ? activeOnboardingThreadId
         : existingThreadId;
@@ -1876,9 +1956,14 @@ ${clipMessage(text, 500)}
         await deps.sendText(channel, userId, formatAgentVisibleReply(runtimeAgent, speechPrompt.message));
         return;
       }
+      const shouldReplyWithWeixinVoice = channel === 'weixin' && Boolean(deps.ttsService);
+      const canFeishuRequestAudioReply = channel === 'feishu' && Boolean(deps.ttsService);
       const runtimePrompt = buildOutboundMessageProtocolPrompt(
         channel,
         speechPrompt?.prompt ?? normalizedPrompt,
+        {
+          feishuTtsEnabled: canFeishuRequestAudioReply,
+        },
       );
       const runtimeProvider = getCurrentProvider(sessionUserKey, runtimeAgent.agentId);
       const activeRunner = getRunner(runtimeProvider);
@@ -1913,12 +1998,21 @@ ${clipMessage(text, 500)}
               });
             },
             onMessage: (text) => {
+              if (shouldReplyWithWeixinVoice) {
+                return;
+              }
               activeRunManager.update(runId, {
                 lastActivityAt: Date.now(),
               });
               const normalizedOutput = rewriteGatewayStructuredLocalPaths(text, resolveAgentWorkdir(runtimeAgent));
               const rawVisibleOutput = activeOnboarding ? sanitizeOnboardingText(normalizedOutput) : normalizedOutput;
-              const userVisibleOutput = formatAgentVisibleReply(runtimeAgent, rawVisibleOutput);
+              lastAgentRawOutput = rawVisibleOutput;
+              const visibleReply = extractReplyModeDirective(rawVisibleOutput);
+              feishuAudioOnlyMode = visibleReply.replyMode === 'audio';
+              if (feishuAudioOnlyMode) {
+                return;
+              }
+              const userVisibleOutput = formatAgentVisibleReply(runtimeAgent, visibleReply.cleanedText);
               log.info(`
 ════════════════════════════════════════════════════════════
 🤖 Codex 回复  [${channel}:${userId}]
@@ -1985,9 +2079,18 @@ ${clipMessage(userVisibleOutput, 500)}
                 );
               },
               onMessage: (text) => {
+                if (shouldReplyWithWeixinVoice) {
+                  return;
+                }
                 const normalizedOutput = rewriteGatewayStructuredLocalPaths(text, resolveAgentWorkdir(runtimeAgent));
                 const rawVisibleOutput = activeOnboarding ? sanitizeOnboardingText(normalizedOutput) : normalizedOutput;
-                const userVisibleOutput = formatAgentVisibleReply(runtimeAgent, rawVisibleOutput);
+                lastAgentRawOutput = rawVisibleOutput;
+                const visibleReply = extractReplyModeDirective(rawVisibleOutput);
+                feishuAudioOnlyMode = visibleReply.replyMode === 'audio';
+                if (feishuAudioOnlyMode) {
+                  return;
+                }
+                const userVisibleOutput = formatAgentVisibleReply(runtimeAgent, visibleReply.cleanedText);
                 log.info(`
 ════════════════════════════════════════════════════════════
 🤖 Codex 回复  [${channel}:${userId}]
@@ -2032,7 +2135,7 @@ ${clipMessage(userVisibleOutput, 500)}
             }),
             stop: async () => false,
           };
-      if (channel === 'feishu' && activeRunner.runWithControl) {
+      if (channel === 'feishu' && activeRunner.runWithControl && !canFeishuRequestAudioReply) {
         const messageId = await (deps.sendTextWithResult ?? (async () => undefined))(channel, userId, buildFeishuRunCardMessage({
           runId,
           agentName: runtimeAgent.name.trim() === '默认Agent' ? '默认助手' : runtimeAgent.name,
@@ -2057,13 +2160,70 @@ ${clipMessage(userVisibleOutput, 500)}
             await controlledRun.stop(reason);
           },
         });
-      } else {
+      } else if (!(channel === 'feishu' && canFeishuRequestAudioReply)) {
         await sendAgentProgress(deps, channel, userId, runtimeAgent, 'received');
       }
       const result = await controlledRun.result;
       const elapsed = Date.now() - startTime;
       await lastStreamSend;
-      if (channel === 'feishu' && deps.sendStreamingText && streamedText && streamedText !== lastFeishuStreamSnapshot) {
+      if (shouldReplyWithWeixinVoice && deps.ttsService) {
+        const parsed = parseCodexJsonl(result.rawOutput);
+        const normalizedOutput = rewriteGatewayStructuredLocalPaths(parsed.answer, resolveAgentWorkdir(runtimeAgent));
+        const rawVisibleOutput = activeOnboarding ? sanitizeOnboardingText(normalizedOutput) : normalizedOutput;
+        if (parseGatewayStructuredMessage(rawVisibleOutput)) {
+          await deps.sendText(channel, userId, rawVisibleOutput);
+        } else {
+          const synthesized = await deps.ttsService.synthesize({
+            text: rawVisibleOutput,
+            workspaceDir: resolveAgentWorkdir(runtimeAgent),
+          });
+          await deps.sendText(channel, userId, JSON.stringify({
+            __gateway_message__: true,
+            msg_type: 'file',
+            content: {
+              local_file_path: synthesized.filePath,
+            },
+          }));
+        }
+        sawAgentOutput = true;
+      }
+      if (canFeishuRequestAudioReply) {
+        const parsed = parseCodexJsonl(result.rawOutput);
+        const normalizedOutput = rewriteGatewayStructuredLocalPaths(parsed.answer, resolveAgentWorkdir(runtimeAgent));
+        const rawVisibleOutput = activeOnboarding ? sanitizeOnboardingText(normalizedOutput) : normalizedOutput;
+        const streamedReplyDirective = extractReplyModeDirective(lastAgentRawOutput);
+        const replyDirective = streamedReplyDirective.replyMode === 'audio'
+          ? streamedReplyDirective
+          : extractReplyModeDirective(rawVisibleOutput);
+        if (replyDirective.replyMode === 'audio' && deps.ttsService && !parseGatewayStructuredMessage(replyDirective.cleanedText)) {
+          const synthesized = await deps.ttsService.synthesize({
+            text: replyDirective.cleanedText,
+            workspaceDir: resolveAgentWorkdir(runtimeAgent),
+          });
+          await deps.sendText(channel, userId, JSON.stringify({
+            __gateway_message__: true,
+            msg_type: 'audio',
+            content: {
+              local_audio_path: synthesized.filePath,
+            },
+          }));
+          sawAgentOutput = true;
+        }
+      }
+      if (feishuAudioOnlyMode && !sawAgentOutput) {
+        const parsed = parseCodexJsonl(result.rawOutput);
+        const normalizedOutput = rewriteGatewayStructuredLocalPaths(parsed.answer, resolveAgentWorkdir(runtimeAgent));
+        const rawVisibleOutput = activeOnboarding ? sanitizeOnboardingText(normalizedOutput) : normalizedOutput;
+        const fallbackReply = lastAgentRawOutput || rawVisibleOutput;
+        const replyDirective = extractReplyModeDirective(fallbackReply);
+        if (parseGatewayStructuredMessage(replyDirective.cleanedText)) {
+          await deps.sendText(channel, userId, replyDirective.cleanedText);
+        } else if (replyDirective.cleanedText.trim()) {
+          await deps.sendText(channel, userId, formatAgentVisibleReply(runtimeAgent, replyDirective.cleanedText));
+        }
+        sawAgentOutput = true;
+      }
+      if (!feishuAudioOnlyMode && channel === 'feishu' && deps.sendStreamingText && streamedText && streamedText !== lastFeishuStreamSnapshot) {
         await deps.sendStreamingText(channel, userId, streamId, streamedText, true);
       }
       if (!sawAgentOutput) {

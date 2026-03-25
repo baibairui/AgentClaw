@@ -43,6 +43,14 @@ const WECOM_SUPPORTED_TYPES = new Set([
   'file',
 ]);
 
+const WEIXIN_SUPPORTED_TYPES = new Set([
+  'text',
+  'image',
+  'voice',
+  'video',
+  'file',
+]);
+
 function parseJsonSource(content: string): Record<string, unknown> | undefined {
   const trimmed = content.trim();
   if (!trimmed) {
@@ -127,6 +135,9 @@ export function isGatewayMessageTypeSupported(channel: Channel, msgType: string)
   }
   if (channel === 'feishu') {
     return FEISHU_SUPPORTED_TYPES.has(normalized);
+  }
+  if (channel === 'weixin') {
+    return WEIXIN_SUPPORTED_TYPES.has(normalized);
   }
   return WECOM_SUPPORTED_TYPES.has(normalized);
 }

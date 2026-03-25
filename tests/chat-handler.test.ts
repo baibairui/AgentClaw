@@ -1008,6 +1008,418 @@ local_audio_path=${sourcePath}`,
     expect(run).not.toHaveBeenCalled();
     expect(sendText).toHaveBeenCalledWith('feishu', 'u1', '测试Agent ·\n你好，帮我总结一下');
   });
+
+  it('sends a final weixin audio file reply after inbound audio', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-handler-weixin-voice-reply-'));
+    const workspaceDir = path.join(tempDir, 'workspace');
+    const sourceDir = path.join(tempDir, 'gateway-cache');
+    const sourcePath = path.join(sourceDir, 'sample.mp3');
+    const synthesizedPath = path.join(workspaceDir, 'reply.mp3');
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(sourcePath, Buffer.from('fake-audio'));
+    fs.writeFileSync(synthesizedPath, Buffer.from('reply-audio'));
+    sessionStore.createAgent('u1', {
+      agentId: 'a1',
+      name: '测试Agent',
+      workspaceDir,
+    });
+    sessionStore.setCurrentAgent('u1', 'a1');
+    const run = vi.fn(async () => ({
+      threadId: 'thread_audio_2',
+      rawOutput: `${JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'agent_message',
+          text: '好的，我来总结一下今天的重点。',
+        },
+      })}\n`,
+    }));
+    const processInboundAudio = vi.fn(async () => ({
+      type: 'continue' as const,
+      prompt: '帮我总结今天重点',
+    }));
+    const synthesize = vi.fn(async () => ({
+      filePath: synthesizedPath,
+      mimeType: 'audio/mpeg',
+      format: 'mp3' as const,
+    }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+      speechService: {
+        processInboundAudio,
+      },
+      ttsService: {
+        synthesize,
+      },
+    });
+
+    await handler({
+      channel: 'weixin',
+      userId: 'u1',
+      content: `[微信语音] duration=3200 mime_type=audio/mpeg
+[微信附件元数据]
+local_audio_path=${sourcePath}`,
+    });
+
+    expect(processInboundAudio).toHaveBeenCalled();
+    expect(run).toHaveBeenCalled();
+    expect(synthesize).toHaveBeenCalledWith({
+      text: '好的，我来总结一下今天的重点。',
+      workspaceDir,
+    });
+    const lastCall = sendText.mock.calls.at(-1);
+    expect(lastCall?.[0]).toBe('weixin');
+    expect(lastCall?.[1]).toBe('u1');
+    expect(JSON.parse(String(lastCall?.[2]))).toEqual({
+      __gateway_message__: true,
+      msg_type: 'file',
+      content: {
+        local_file_path: synthesizedPath,
+      },
+    });
+  });
+  it('sends a final weixin audio file reply for text without speech service', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-handler-weixin-text-tts-'));
+    const workspaceDir = path.join(tempDir, 'workspace');
+    const synthesizedPath = path.join(tempDir, 'reply-weixin-text.mp3');
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(synthesizedPath, Buffer.from('reply-audio'));
+    sessionStore.createAgent('u1', {
+      agentId: 'a1',
+      name: '测试Agent',
+      workspaceDir,
+    });
+    sessionStore.setCurrentAgent('u1', 'a1');
+    const run = vi.fn(async () => ({
+      threadId: 'thread_text_tts',
+      rawOutput: `${JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'agent_message',
+          text: '这是直接走 TTS 的微信回复。',
+        },
+      })}\n`,
+    }));
+    const synthesize = vi.fn(async () => ({
+      filePath: synthesizedPath,
+      mimeType: 'audio/mpeg',
+      format: 'mp3' as const,
+    }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+      ttsService: {
+        synthesize,
+      },
+    });
+
+    await handler({
+      channel: 'weixin',
+      userId: 'u1',
+      content: '把今天的会议总结成一段语音发给我',
+    });
+
+    expect(run).toHaveBeenCalled();
+    expect(synthesize).toHaveBeenCalledWith({
+      text: '这是直接走 TTS 的微信回复。',
+      workspaceDir,
+    });
+    const lastCall = sendText.mock.calls.at(-1);
+    expect(lastCall?.[0]).toBe('weixin');
+    expect(lastCall?.[1]).toBe('u1');
+    expect(JSON.parse(String(lastCall?.[2]))).toEqual({
+      __gateway_message__: true,
+      msg_type: 'file',
+      content: {
+        local_file_path: synthesizedPath,
+      },
+    });
+  });
+
+  it('sends a final feishu audio reply when model requests reply_mode=audio', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-handler-feishu-text-tts-'));
+    const workspaceDir = path.join(tempDir, 'workspace');
+    const synthesizedPath = path.join(tempDir, 'reply-feishu-text.mp3');
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(synthesizedPath, Buffer.from('reply-audio'));
+    sessionStore.createAgent('u1', {
+      agentId: 'a1',
+      name: '测试Agent',
+      workspaceDir,
+    });
+    sessionStore.setCurrentAgent('u1', 'a1');
+    const run = vi.fn(async () => ({
+      threadId: 'thread_feishu_tts',
+      rawOutput: `${JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'agent_message',
+          text: '晚安宝贝\nreply_mode=audio',
+        },
+      })}\n`,
+    }));
+    const synthesize = vi.fn(async () => ({
+      filePath: synthesizedPath,
+      mimeType: 'audio/mpeg',
+      format: 'mp3' as const,
+    }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+      ttsService: {
+        synthesize,
+      },
+    });
+
+    await handler({
+      channel: 'feishu',
+      userId: 'u1',
+      content: '用语音说一句晚安宝贝',
+    });
+
+    expect(run).toHaveBeenCalled();
+    expect(synthesize).toHaveBeenCalledWith({
+      text: '晚安宝贝',
+      workspaceDir,
+    });
+    const lastCall = sendText.mock.calls.at(-1);
+    expect(lastCall?.[0]).toBe('feishu');
+    expect(lastCall?.[1]).toBe('u1');
+    expect(JSON.parse(String(lastCall?.[2]))).toEqual({
+      __gateway_message__: true,
+      msg_type: 'audio',
+      content: {
+        local_audio_path: synthesizedPath,
+      },
+    });
+  });
+
+  it('sends a final feishu audio reply when only the streamed final answer carries reply_mode=audio', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-handler-feishu-streamed-tts-'));
+    const workspaceDir = path.join(tempDir, 'workspace');
+    const synthesizedPath = path.join(tempDir, 'reply-feishu-streamed.mp3');
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(synthesizedPath, Buffer.from('reply-audio'));
+    sessionStore.createAgent('u1', {
+      agentId: 'a1',
+      name: '测试Agent',
+      workspaceDir,
+    });
+    sessionStore.setCurrentAgent('u1', 'a1');
+    const runWithControl = vi.fn((input: {
+      onMessage?: (text: string) => void;
+    }) => {
+      input.onMessage?.('晚安宝贝\nreply_mode=audio');
+      return {
+        result: Promise.resolve({
+          threadId: 'thread_feishu_streamed_tts',
+          rawOutput: `${JSON.stringify({
+            type: 'item.completed',
+            item: {
+              type: 'agent_message',
+              text: '晚安宝贝',
+            },
+          })}\n`,
+        }),
+        stop: async () => false,
+      };
+    });
+    const synthesize = vi.fn(async () => ({
+      filePath: synthesizedPath,
+      mimeType: 'audio/mpeg',
+      format: 'mp3' as const,
+    }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: async () => ({ threadId: 'unused', rawOutput: '' }),
+        runWithControl,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+      ttsService: {
+        synthesize,
+      },
+    });
+
+    await handler({
+      channel: 'feishu',
+      userId: 'u1',
+      content: '用语音说一句晚安宝贝',
+    });
+
+    expect(runWithControl).toHaveBeenCalled();
+    expect(synthesize).toHaveBeenCalledWith({
+      text: '晚安宝贝',
+      workspaceDir,
+    });
+    const audioCall = sendText.mock.calls.find((call) => {
+      if (call[0] !== 'feishu' || call[1] !== 'u1') {
+        return false;
+      }
+      try {
+        return JSON.parse(String(call[2])).msg_type === 'audio';
+      } catch {
+        return false;
+      }
+    });
+    expect(audioCall).toBeTruthy();
+  });
+
+  it('suppresses feishu run cards and streamed text when the model emits reply_mode=audio', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const sendTextWithResult = vi.fn(async () => 'om_run_1');
+    const sendStreamingText = vi.fn(async () => undefined);
+    const sessionStore = createSessionStore();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-handler-feishu-audio-only-'));
+    const workspaceDir = path.join(tempDir, 'workspace');
+    const synthesizedPath = path.join(tempDir, 'reply-feishu-audio-only.mp3');
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(synthesizedPath, Buffer.from('reply-audio'));
+    sessionStore.createAgent('u1', {
+      agentId: 'a1',
+      name: '测试Agent',
+      workspaceDir,
+    });
+    sessionStore.setCurrentAgent('u1', 'a1');
+    sessionStore.setSession('u1', 'a1', 'thread_existing');
+    sessionStore.setProviderOverride?.('u1', 'a1', 'codex');
+    const runWithControl = vi.fn((input: {
+      onMessage?: (text: string) => void;
+    }) => {
+      input.onMessage?.('晚安宝贝\nreply_mode=audio');
+      return {
+        result: Promise.resolve({
+          threadId: 'thread_feishu_audio_only',
+          rawOutput: `${JSON.stringify({
+            type: 'item.completed',
+            item: {
+              type: 'agent_message',
+              text: '晚安宝贝',
+            },
+          })}\n`,
+        }),
+        stop: async () => false,
+      };
+    });
+    const synthesize = vi.fn(async () => ({
+      filePath: synthesizedPath,
+      mimeType: 'audio/mpeg',
+      format: 'mp3' as const,
+    }));
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: async () => ({ threadId: 'unused', rawOutput: '' }),
+        runWithControl,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'a1', workspaceDir }),
+        isSharedMemoryEmpty: () => false,
+        isWorkspaceIdentityEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultModel: 'gpt-5-codex',
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+      sendTextWithResult,
+      sendStreamingText,
+      ttsService: {
+        synthesize,
+      },
+    });
+
+    await handler({
+      channel: 'feishu',
+      userId: 'u1',
+      content: '晚安宝贝',
+    });
+
+    expect(sendTextWithResult).not.toHaveBeenCalled();
+    expect(sendStreamingText).not.toHaveBeenCalled();
+    const audioCalls = sendText.mock.calls.filter((call) => {
+      if (call[0] !== 'feishu' || call[1] !== 'u1') {
+        return false;
+      }
+      try {
+        return JSON.parse(String(call[2])).msg_type === 'audio';
+      } catch {
+        return false;
+      }
+    });
+    expect(audioCalls).toHaveLength(1);
+    expect(sendText).toHaveBeenCalledTimes(1);
+    expect(synthesize).toHaveBeenCalledWith({
+      text: '晚安宝贝',
+      workspaceDir,
+    });
+  });
+
   it('falls back to visible default agent when current agent is hidden onboarding agent', async () => {
     const sendText = vi.fn(async () => undefined);
     const sessionStore = createSessionStore();
@@ -2712,6 +3124,38 @@ local_audio_path=${sourcePath}`,
     expect(prompt).not.toContain('飞书常用 msg_type');
   });
 
+  it('uses channel-specific outbound prompt for weixin', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const run = vi.fn(async () => ({ threadId: 'thread_new', rawOutput: '' }));
+    const sessionStore = createSessionStore();
+    const handler = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'frontend', workspaceDir: '/tmp/frontend' }),
+        isSharedMemoryEmpty: () => false,
+      },
+      browserOpenEnabled: false,
+      runnerEnabled: true,
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handler({ channel: 'weixin', userId: 'u1', content: 'hello' });
+
+    const prompt = run.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).toContain('你必须遵循以下个人微信回发协议：');
+    expect(prompt).toContain('个人微信常用 msg_type：text、image、voice、video、file。');
+    expect(prompt).toContain('若明确需要回发个人微信非文本消息');
+    expect(prompt).toContain('image/voice/video/file 仅在用户明确要求发送对应类型');
+    expect(prompt).not.toContain('企微常用 msg_type');
+  });
+
   it('includes message type selection rules in feishu prompt', async () => {
     const sendText = vi.fn(async () => undefined);
     const run = vi.fn(async () => ({ threadId: 'thread_new', rawOutput: '' }));
@@ -2754,6 +3198,64 @@ local_audio_path=${sourcePath}`,
     expect(prompt).not.toContain('回发飞书 post 时，若只是普通富文本段落，可直接把 content 写成字符串');
     expect(prompt).not.toContain('多段说明/列表/摘要优先 post');
     expect(prompt).toContain('如果不确定该用哪种类型，优先退回 text');
+  });
+
+  it('teaches feishu model to emit reply_mode=audio only when tts is enabled', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const runWithTts = vi.fn(async () => ({ threadId: 'thread_tts', rawOutput: '' }));
+    const runWithoutTts = vi.fn(async () => ({ threadId: 'thread_plain', rawOutput: '' }));
+    const sessionStore = createSessionStore();
+
+    const handlerWithTts = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: runWithTts,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'frontend', workspaceDir: '/tmp/frontend' }),
+        isSharedMemoryEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+      ttsService: {
+        synthesize: async () => ({
+          filePath: '/tmp/reply.mp3',
+          mimeType: 'audio/mpeg',
+          format: 'mp3' as const,
+        }),
+      },
+    });
+
+    await handlerWithTts({ channel: 'feishu', userId: 'u1', content: 'hello' });
+
+    const handlerWithoutTts = createChatHandler({
+      sessionStore,
+      rateLimitStore: { allow: () => true },
+      codexRunner: {
+        run: runWithoutTts,
+        review: async () => ({ rawOutput: '' }),
+      },
+      agentWorkspaceManager: {
+        createWorkspace: () => ({ agentId: 'frontend', workspaceDir: '/tmp/frontend' }),
+        isSharedMemoryEmpty: () => false,
+      },
+      runnerEnabled: true,
+      defaultSearch: false,
+      reminderDbPath: '/tmp/reminders.db',
+      sendText,
+    });
+
+    await handlerWithoutTts({ channel: 'feishu', userId: 'u1', content: 'hello' });
+
+    const promptWithTts = runWithTts.mock.calls[0]?.[0]?.prompt as string;
+    const promptWithoutTts = runWithoutTts.mock.calls[0]?.[0]?.prompt as string;
+    expect(promptWithTts).toContain('reply_mode=audio');
+    expect(promptWithTts).toContain('仅在用户明确要求语音回复');
+    expect(promptWithoutTts).not.toContain('reply_mode=audio');
   });
 
   it('publishes workspace for /deploy-workspace command', async () => {

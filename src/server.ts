@@ -30,6 +30,7 @@ import { installGatewayDesktopSkill, syncManagedGlobalDesktopSkills } from './se
 import { OpenCodeAuthFlowManager, buildOpenCodeAuthSessionKey } from './services/opencode-auth-flow.js';
 import { pushFeishuStartupHelp } from './services/startup-help.js';
 import { createSpeechService } from './services/speech-service-factory.js';
+import { createTtsService } from './services/tts-service-factory.js';
 import { WeComApi } from './services/wecom-api.js';
 import { WeixinApi, splitWeixinOutboundText, type WeixinInboundMessage } from './services/weixin-api.js';
 import { FeishuApi } from './services/feishu-api.js';
@@ -521,9 +522,22 @@ async function enqueueSendText(channel: 'wecom' | 'feishu' | 'weixin', userId: s
       if (!contextToken) {
         throw new Error(`missing weixin context token for ${userId}`);
       }
-      const outboundText = structured
-        ? `⚠️ 微信渠道暂不支持结构化消息，已退回为文本。\n${content}`
-        : content;
+      if (structured) {
+        if (structured.op !== 'send') {
+          await weixinApi.sendText(userId, `❌ 个人微信暂不支持 ${structured.op} 消息操作。`, contextToken);
+          return undefined;
+        }
+        if (!isGatewayMessageTypeSupported(channel, structured.msg_type)) {
+          await weixinApi.sendText(userId, `❌ 不支持的个人微信 msg_type：${structured.msg_type}`, contextToken);
+          return undefined;
+        }
+        await weixinApi.sendMessage(userId, {
+          msgType: structured.msg_type,
+          content: structured.content,
+        }, contextToken);
+        return undefined;
+      }
+      const outboundText = content;
       const outboundParts = splitWeixinOutboundText(outboundText);
       for (const part of outboundParts) {
         await weixinApi.sendText(userId, part, contextToken);
@@ -644,6 +658,10 @@ const handleChatText = createChatHandler({
   openCodeAuthFlowManager,
   speechService: createSpeechService({
     speech: config.speech,
+    apiTimeoutMs: config.apiTimeoutMs,
+  }),
+  ttsService: createTtsService({
+    tts: config.speech.tts,
     apiTimeoutMs: config.apiTimeoutMs,
   }),
 });

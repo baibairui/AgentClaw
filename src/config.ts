@@ -177,6 +177,25 @@ export const config = {
       apiKeyEnv: optionalString('SPEECH_STT_API_KEY_ENV', 'OPENAI_API_KEY'),
       model: optionalString('SPEECH_STT_MODEL', 'gpt-4o-mini-transcribe'),
     },
+    tts: {
+      enabled: process.env.SPEECH_TTS_ENABLED === 'true',
+      provider: optionalString('SPEECH_TTS_PROVIDER', 'minimax'),
+      baseUrl: normalizeBaseUrl(optionalStringUndefined('SPEECH_TTS_BASE_URL')),
+      apiKeyEnv: optionalString('SPEECH_TTS_API_KEY_ENV', 'MINIMAX_API_KEY'),
+      model: optionalString('SPEECH_TTS_MODEL', 'speech-2.8-hd'),
+      voiceId: optionalString('SPEECH_TTS_VOICE_ID', 'Chinese (Mandarin)_Cheerful_Sunshine'),
+      outputFormat: optionalString('SPEECH_TTS_AUDIO_FORMAT', 'mp3') as 'mp3' | 'wav' | 'flac',
+      audio: {
+        sampleRate: optionalNumber('SPEECH_TTS_AUDIO_SAMPLE_RATE', 32000),
+        bitrate: optionalNumber('SPEECH_TTS_AUDIO_BITRATE', 128000),
+        channel: optionalNumber('SPEECH_TTS_AUDIO_CHANNEL', 1),
+      },
+      voice: {
+        speed: optionalNumber('SPEECH_TTS_VOICE_SPEED', 1),
+        vol: optionalNumber('SPEECH_TTS_VOICE_VOL', 1),
+        pitch: optionalNumber('SPEECH_TTS_VOICE_PITCH', 0),
+      },
+    },
     audio: {
       maxSizeMb: optionalNumber('SPEECH_AUDIO_MAX_SIZE_MB', 25),
       maxDurationSec: optionalNumber('SPEECH_AUDIO_MAX_DURATION_SEC', 300),

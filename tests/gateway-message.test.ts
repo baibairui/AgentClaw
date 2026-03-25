@@ -64,4 +64,13 @@ describe('isGatewayMessageTypeSupported', () => {
     expect(isGatewayMessageTypeSupported('wecom', 'markdown')).toBe(true);
     expect(isGatewayMessageTypeSupported('wecom', 'interactive')).toBe(false);
   });
+
+  it('checks weixin supported message types', () => {
+    expect(isGatewayMessageTypeSupported('weixin', 'text')).toBe(true);
+    expect(isGatewayMessageTypeSupported('weixin', 'image')).toBe(true);
+    expect(isGatewayMessageTypeSupported('weixin', 'voice')).toBe(true);
+    expect(isGatewayMessageTypeSupported('weixin', 'video')).toBe(true);
+    expect(isGatewayMessageTypeSupported('weixin', 'file')).toBe(true);
+    expect(isGatewayMessageTypeSupported('weixin', 'interactive')).toBe(false);
+  });
 });
