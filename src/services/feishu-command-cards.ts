@@ -308,6 +308,10 @@ function buildFeishuTitleBlock(title: string, summary: string): Record<string, u
   return buildFeishuTextBlock(`**${title}**\n${summary}`);
 }
 
+function buildFeishuStepBlock(step: string, title: string, summary: string): Record<string, unknown> {
+  return buildFeishuTextBlock(`**${step}**\n**${title}**\n${summary}`);
+}
+
 function buildFeishuSectionBlock(title: string, body: string | string[]): Record<string, unknown> {
   const normalizedBody = Array.isArray(body) ? body.filter(Boolean).join('\n') : body;
   const content = normalizedBody ? `**${title}**\n${normalizedBody}` : `**${title}**`;
@@ -329,12 +333,16 @@ function buildFeishuFieldGrid(fields: FeishuCardField[]): Record<string, unknown
   };
 }
 
-function buildFeishuTipsNote(content: string): Record<string, unknown> {
-  return buildFeishuTextBlock(content);
+function buildFeishuTipsNote(content: string | string[]): Record<string, unknown> {
+  return buildFeishuSectionBlock('建议', content);
 }
 
 function buildFeishuLeadNote(content: string): Record<string, unknown> {
-  return buildFeishuTextBlock(content);
+  return buildFeishuSectionBlock('当前重点', content);
+}
+
+function buildFeishuGuideBlock(title: string, body: string | string[]): Record<string, unknown> {
+  return buildFeishuSectionBlock(title, body);
 }
 
 function extractIndexedLines(text: string): string[] {
@@ -414,7 +422,7 @@ function buildSessionsCardElements(text: string): Array<Record<string, unknown>>
   const summary = lines[0] ?? text;
   const sessionButtons = buildSessionButtons(indexed);
   const elements: Array<Record<string, unknown>> = [
-    buildFeishuTitleBlock(CARD_COPY.sessionsTitle, summary),
+    buildFeishuGuideBlock('当前状态', summary),
   ];
   if (indexed.length > 0) {
     elements.push(buildFeishuFieldGrid([
@@ -468,7 +476,7 @@ function buildAgentsCardElements(text: string): Array<Record<string, unknown>> {
   const workspaceLines = lines.filter((line) => line.startsWith('/'));
   const agentButtons = buildAgentButtons(lines);
   const elements: Array<Record<string, unknown>> = [
-    buildFeishuTitleBlock(CARD_COPY.agentsTitle, summary),
+    buildFeishuGuideBlock('当前状态', summary),
   ];
   if (indexed.length > 0) {
     elements.push(buildFeishuFieldGrid([
@@ -493,7 +501,7 @@ function buildSkillsCardElements(text: string): Array<Record<string, unknown>> {
   const agent = scopeMatch?.[2]?.trim() ?? '';
   const titleSummary = [scope || 'effective', agent].filter(Boolean).join(' · ');
   const elements: Array<Record<string, unknown>> = [
-    buildFeishuTitleBlock('Skills', titleSummary || summary),
+    buildFeishuGuideBlock('生效技能', titleSummary || summary),
   ];
   if (scope || agent || indexed.length > 0) {
     elements.push(buildFeishuFieldGrid([
@@ -563,7 +571,7 @@ function buildAgentCardElements(text: string): Array<Record<string, unknown>> {
   const workspaceLine = lines.find((line) => line.startsWith('工作区：'));
   const sessionLine = lines.find((line) => line.startsWith('当前会话：'));
   if (agentLine) {
-    elements.push(buildFeishuTitleBlock('Agent', agentLine));
+    elements.push(buildFeishuGuideBlock('当前状态', agentLine));
   }
   if (workspaceLine || sessionLine) {
     elements.push(buildFeishuFieldGrid([
@@ -596,7 +604,7 @@ function buildModelCardElements(text: string): Array<Record<string, unknown>> {
   const hasMoreVisibleModels = (pageInfo?.page ?? 1) < (pageInfo?.total ?? 1)
     || prioritizedVisibleModels.length > visibleModelButtons.length;
   if (currentLine) {
-    elements.push(buildFeishuTitleBlock('当前模型', currentLine));
+    elements.push(buildFeishuGuideBlock('当前状态', currentLine));
     elements.push(buildFeishuFieldGrid([
       { label: '模型状态', value: currentModel ?? '' },
       { label: '可见模型数', value: visibleModels.length > 0 ? String(visibleModels.length) : '' },
@@ -645,7 +653,7 @@ function buildModelCardElements(text: string): Array<Record<string, unknown>> {
     ]));
   }
   if (elements.length === 0) {
-    elements.push(buildFeishuTitleBlock('当前模型', text));
+    elements.push(buildFeishuGuideBlock('当前状态', text));
   }
   return elements;
 }
@@ -658,7 +666,7 @@ function buildSearchCardElements(text: string): Array<Record<string, unknown>> {
     ? '⚪ 已关闭'
     : '🟡 状态未知';
   const elements: Array<Record<string, unknown>> = [
-    buildFeishuTitleBlock(CARD_COPY.searchTitle, stateLine),
+    buildFeishuGuideBlock('当前状态', stateLine),
   ];
   const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
   elements.push(buildFeishuFieldGrid([
@@ -684,7 +692,7 @@ function buildHelpCardElements(text: string): Array<Record<string, unknown>> {
     ? `帮助页 ${pageInfo.page}/${pageInfo.total}`
     : primaryGroupName || '可用命令';
   const elements: Array<Record<string, unknown>> = [
-    buildFeishuTitleBlock(CARD_COPY.helpTitle, summary),
+    buildFeishuGuideBlock('当前重点', summary),
   ];
   elements.push(buildFeishuFieldGrid([
     { label: CARD_COPY.helpGroupLabel, value: groupNames.join(' / ') },
@@ -791,7 +799,8 @@ function buildStatusCardElements(text: string): Array<Record<string, unknown>> {
   const summary = firstLine.replace(/^[✅❌⚠️⏳]\s*/, '').trim() || firstLine;
   const details = lines.slice(1);
   const elements: Array<Record<string, unknown>> = [
-    buildFeishuTitleBlock(title, summary),
+    buildFeishuGuideBlock('结论', title),
+    buildFeishuLeadNote(summary),
     buildFeishuFieldGrid([
       { label: '状态', value: firstLine },
       { label: '类型', value: title },
@@ -809,7 +818,7 @@ function buildFeishuActionSection(actions: CommandQuickAction[]): Array<Record<s
   }
   return [
     buildFeishuDivider(),
-    buildFeishuSectionBlock(CARD_COPY.actionTitle, CARD_COPY.actionHint),
+    buildFeishuSectionBlock('下一步', CARD_COPY.actionHint),
     ...buildCommandButtonRows(actions.map((item) => ({
       label: item.label,
       cmd: item.cmd,
@@ -825,10 +834,10 @@ function buildGenericCardElements(text: string): Array<Record<string, unknown>> 
   const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
   const summary = lines[0] ?? text;
   if (lines.length <= 1) {
-    return [buildFeishuTitleBlock(CARD_COPY.genericTitle, summary)];
+    return [buildFeishuGuideBlock('当前重点', summary)];
   }
   return [
-    buildFeishuTitleBlock(CARD_COPY.genericTitle, summary),
+    buildFeishuGuideBlock('当前重点', summary),
     buildFeishuDivider(),
     buildFeishuSectionBlock('详情', lines.slice(1)),
   ];
@@ -925,10 +934,18 @@ export function buildFeishuRunCardMessage(input: {
     completed: { title: '已完成', template: 'green', summary: '当前任务已处理完成' },
   };
   const statusMeta = statusMap[input.status];
+  const nextStep = input.status === 'running'
+    ? '如需中断本次执行，点击下方“结束”。'
+    : input.status === 'stopping'
+    ? '稍等片刻，状态卡会继续更新。'
+    : '当前阶段已经结束，如需继续可直接发送下一条消息。';
   const elements: Array<Record<string, unknown>> = [
-    buildFeishuTextBlock(statusMeta.summary),
+    buildFeishuLeadNote(statusMeta.summary),
+    buildFeishuGuideBlock('当前阶段', statusMeta.title),
+    buildFeishuGuideBlock('下一步', nextStep),
   ];
   if (input.status === 'running') {
+    elements.push(buildFeishuDivider());
     elements.push(
       ...buildValueButtonRows([
         {
@@ -987,7 +1004,8 @@ export function buildFeishuLoginChoiceMessage(input: {
       },
     },
     elements: [
-      buildFeishuTitleBlock(
+      buildFeishuStepBlock(
+        '步骤 1',
         '选择登录方式',
         supportsDeviceAuth
           ? `飞书下可以使用设备授权，或直接写入项目内的 ${providerLabel} API 配置。`
@@ -997,7 +1015,12 @@ export function buildFeishuLoginChoiceMessage(input: {
         { label: '写入位置', value: writeLocation },
         { label: '认证文件', value: authLocation },
       ]),
-      buildFeishuTipsNote(`API Key 不会通过普通聊天文本转发给 ${providerLabel}。`),
+      buildFeishuTipsNote([
+        `API Key 不会通过普通聊天文本转发给 ${providerLabel}。`,
+        supportsDeviceAuth ? '优先推荐设备授权；需要固定 API 配置时再使用表单登录。' : '当前渠道不支持设备授权，请直接填写 API URL / Key。',
+      ]),
+      buildFeishuDivider(),
+      buildFeishuGuideBlock('下一步', '点击一种登录方式继续。'),
       ...buildValueButtonRows([
         {
           label: 'API URL / Key 登录',
@@ -1034,12 +1057,14 @@ export function buildFeishuOpenCodeLoginChoiceMessage(): string {
       },
     },
     elements: [
-      buildFeishuTitleBlock('使用 API URL / Key 登录 OpenCode', '飞书内暂不提供 OpenCode 的浏览器授权登录，请直接写入 API 配置。'),
+      buildFeishuStepBlock('步骤 1', '使用 API URL / Key 登录 OpenCode', '飞书内暂不提供 OpenCode 的浏览器授权登录，请直接写入 API 配置。'),
       buildFeishuFieldGrid([
         { label: '写入位置', value: '.config/opencode/opencode.json' },
         { label: '认证文件', value: '.local/share/opencode/auth.json' },
       ]),
       buildFeishuTipsNote('推荐填写 OpenAI 兼容 API：base_url + api_key + model。'),
+      buildFeishuDivider(),
+      buildFeishuGuideBlock('下一步', '点击下方按钮进入配置表单。'),
       ...buildValueButtonRows([
         {
           label: 'API URL / Key 登录',
@@ -1071,7 +1096,8 @@ export function buildFeishuOpenCodeOauthMessage(input: {
       },
     },
     elements: [
-      buildFeishuTitleBlock(
+      buildFeishuStepBlock(
+        '步骤 3',
         `${providerLabel} 授权已就绪`,
         '点击下面的按钮在浏览器中完成授权，网关会继续自动推进后续确认步骤。',
       ),
@@ -1079,6 +1105,8 @@ export function buildFeishuOpenCodeOauthMessage(input: {
         { label: '登录渠道', value: providerLabel },
         { label: '授权链接', value: input.url },
       ]),
+      buildFeishuGuideBlock('下一步', '打开浏览器完成授权，完成后返回飞书等待状态刷新。'),
+      buildFeishuDivider(),
       ...buildValueButtonRows([
         {
           label: '打开授权链接',
@@ -1108,10 +1136,12 @@ export function buildFeishuOpenCodeInputFallbackMessage(input: {
       },
     },
     elements: [
-      buildFeishuTitleBlock(
-        `${providerLabel} 登录还需要一步输入`,
+      buildFeishuStepBlock(
+        '步骤 4',
+        '补充授权信息',
         input.prompt.trim(),
       ),
+      buildFeishuGuideBlock('填写说明', '仅在授权流程明确要求补充输入时填写。'),
       {
         tag: 'form',
         name: 'opencode_oauth_input',
@@ -1174,8 +1204,8 @@ export function buildFeishuApiLoginFormMessage(defaults?: {
       },
     },
     elements: [
-      buildFeishuTitleBlock(`写入 ${providerLabel} API 配置`, '提交后会覆盖当前项目内的登录配置。'),
-      buildFeishuTipsNote(`建议填写：base_url=${baseUrl}，model=${model}`),
+      buildFeishuStepBlock('步骤 2', '填写 API 配置', `提交后会覆盖当前项目内的 ${providerLabel} 登录配置。`),
+      buildFeishuGuideBlock('填写说明', `建议填写：base_url=${baseUrl}，model=${model}`),
       ...(provider === 'opencode'
         ? [buildFeishuTipsNote('可选：reasoning effort 支持 none / minimal / low / medium / high / xhigh。')]
         : []),
@@ -1296,13 +1326,16 @@ export function buildFeishuApiLoginResultMessage(input: {
       },
     },
     elements: [
-      buildFeishuTitleBlock(input.ok ? `${providerLabel} 配置写入成功` : `${providerLabel} 配置写入失败`, input.message),
+      buildFeishuGuideBlock('结论', input.ok ? `${providerLabel} 配置写入成功` : `${providerLabel} 配置写入失败`),
+      buildFeishuLeadNote(input.message),
       buildFeishuFieldGrid([
         { label: 'API URL', value: input.baseUrl ?? '' },
         { label: 'Model', value: input.model ?? '' },
         { label: 'Reasoning', value: input.reasoningEffort ?? '' },
         { label: 'API Key', value: input.maskedApiKey ?? (input.ok ? '已配置' : '') },
       ]),
+      buildFeishuDivider(),
+      buildFeishuGuideBlock('下一步', input.ok ? '如需切换账号或刷新凭据，可重新进入登录流程。' : '修正配置后返回表单重试。'),
       ...buildValueButtonRows(input.ok
         ? [
             {
@@ -1353,7 +1386,8 @@ export function buildFeishuUserAuthMessage(input: {
       },
     },
     elements: [
-      buildFeishuTitleBlock(
+      buildFeishuStepBlock(
+        '步骤 1',
         '授权个人任务与个人日历',
         input.reason?.trim() || '完成一次飞书 OAuth 绑定后，agent 才能创建到你本人的任务和主日历事件。',
       ),
@@ -1362,6 +1396,8 @@ export function buildFeishuUserAuthMessage(input: {
         { label: '状态检查', value: authStatusUrl },
       ]),
       buildFeishuTipsNote('这是飞书个人身份授权，不是 Codex CLI 的 /login。'),
+      buildFeishuDivider(),
+      buildFeishuGuideBlock('下一步', '先点击“去飞书授权”，完成后再用“查看授权状态”确认是否生效。'),
       ...buildValueButtonRows([
         {
           label: '去飞书授权',
@@ -1393,8 +1429,11 @@ export function buildFeishuPersonalAuthUnavailableMessage(input?: {
       },
     },
     elements: [
-      buildFeishuTitleBlock(
+      buildFeishuGuideBlock(
+        '当前状态',
         '当前环境未启用个人权限连接',
+      ),
+      buildFeishuLeadNote(
         input?.reason?.trim() || '当前环境还不能直接连接你的个人飞书权限，因此我暂时无法创建你的个人任务或个人日历事件。',
       ),
       buildFeishuFieldGrid([
@@ -1402,7 +1441,7 @@ export function buildFeishuPersonalAuthUnavailableMessage(input?: {
         { label: '下一步', value: '请让管理员为当前服务启用飞书个人权限连接后，再重试该请求' },
       ]),
       buildFeishuTipsNote('这不是 /login 问题，而是当前环境尚未启用“以你的身份访问飞书个人能力”。'),
-      buildFeishuTipsNote('了解当前状态后，可直接关闭此消息。'),
+      buildFeishuGuideBlock('下一步', '联系管理员启用该能力后再重试；若只是确认现状，可直接关闭这张卡片。'),
     ],
   });
 }

@@ -26,6 +26,24 @@ describe('startCodexDeviceLogin', () => {
     expect(String(sendText.mock.calls[2]?.[2] ?? '')).toContain('登录成功');
   });
 
+  it('strips ansi escape sequences from device auth progress before sending cards', async () => {
+    const sendText = vi.fn(async () => undefined);
+    const login = vi.fn(async (input?: { onMessage?: (text: string) => void }) => {
+      input?.onMessage?.('\u001b[32mOpen this URL and enter code ABCD-EFGH\u001b[0m');
+    });
+
+    await startCodexDeviceLogin({
+      channel: 'feishu',
+      userId: 'ou_ansi',
+      sendText,
+      codexRunner: { login },
+    });
+
+    const payload = String(sendText.mock.calls[1]?.[2] ?? '');
+    expect(payload).toContain('Open this URL and enter code ABCD-EFGH');
+    expect(payload).not.toContain('\u001b[');
+  });
+
   it('removes previous api login config after device auth succeeds', async () => {
     const codexHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-device-login-'));
     const configPath = path.join(codexHomeDir, 'config.toml');

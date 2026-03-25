@@ -40,7 +40,11 @@ export async function startCodexDeviceLogin(input: StartCodexDeviceLoginInput): 
   try {
     await codexRunner.login({
       onMessage: (text) => {
-        lastStreamSend = sendCommandText(`【登录授权】\n${text}`);
+        const sanitized = sanitizeDeviceAuthMessage(text);
+        if (!sanitized) {
+          return;
+        }
+        lastStreamSend = sendCommandText(`【登录授权】\n${sanitized}`);
       },
     });
     await lastStreamSend;
@@ -50,6 +54,20 @@ export async function startCodexDeviceLogin(input: StartCodexDeviceLoginInput): 
     suspendedConfig.restore();
     throw error;
   }
+}
+
+function sanitizeDeviceAuthMessage(text: string): string {
+  return stripAnsi(text)
+    .replace(/\r/g, '\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
 function suspendCodexApiConfig(codexHomeDir: string | undefined): {

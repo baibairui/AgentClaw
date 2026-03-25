@@ -210,6 +210,8 @@ describe('createChatHandler', () => {
     expect(stopButton?.text?.content).toBe('结束');
     expect(stopButton?.type).toBe('danger');
     const serialized = JSON.stringify(elements);
+    expect(serialized).toContain('**当前阶段**');
+    expect(serialized).toContain('**下一步**');
     expect(serialized).toContain('正在为你处理当前请求');
     expect(serialized).not.toContain('Agent');
     expect(serialized).not.toContain('框架');
@@ -1633,9 +1635,9 @@ local_audio_path=${sourcePath}`,
       .filter((item) => item.tag === 'markdown')
       .map((item) => String(item.content ?? ''))
       .join('\n');
-    expect(merged).toContain('帮助目录');
+    expect(merged).toContain('**当前重点**');
     expect(merged).toContain('会话与 Agent · 1/3');
-    expect(merged).toContain('快捷操作');
+    expect(merged).toContain('**下一步**');
     expect(elements.some((item) => item.tag === 'note')).toBe(false);
     expect(merged).not.toContain('按功能分组浏览可用命令，并直接点击执行常用操作。');
     const fieldGrid = elements.find((item) => (item as { tag?: string }).tag === 'div') as {
@@ -1728,6 +1730,7 @@ local_audio_path=${sourcePath}`,
       .filter((item) => item.tag === 'markdown')
       .map((item) => String(item.content ?? ''));
     expect(markdownContents.join('\n')).toContain('**当前状态**');
+    expect(markdownContents.join('\n')).toContain('**下一步**');
     const fieldGrid = elements.find((item) => item.tag === 'div') as {
       fields?: Array<{ text?: { content?: string } }>;
     } | undefined;
@@ -1910,8 +1913,9 @@ local_audio_path=${sourcePath}`,
     const markdownContents = elements
       .filter((item) => item.tag === 'markdown')
       .map((item) => String((item as { content?: unknown }).content ?? ''));
-    expect(markdownContents.join('\n')).toContain('**Skills**');
-    expect(markdownContents.join('\n')).toContain('**技能**');
+    expect(markdownContents.join('\n')).toContain('**当前重点**');
+    expect(markdownContents.join('\n')).toContain('**生效技能**');
+    expect(markdownContents.join('\n')).toContain('**下一步**');
     const fieldGrid = elements.find((item) => item.tag === 'div') as {
       fields?: Array<{ text?: { content?: string } }>;
     } | undefined;
@@ -1955,7 +1959,8 @@ local_audio_path=${sourcePath}`,
     const markdownContents = elements
       .filter((item) => item.tag === 'markdown')
       .map((item) => String((item as { content?: unknown }).content ?? ''));
-    expect(markdownContents.join('\n')).toContain('**会话切换**');
+    expect(markdownContents.join('\n')).toContain('**当前重点**');
+    expect(markdownContents.join('\n')).toContain('**下一步**');
     const fieldGrid = elements.find((item) => item.tag === 'div') as {
       fields?: Array<{ text?: { content?: string } }>;
     } | undefined;
@@ -2006,7 +2011,8 @@ local_audio_path=${sourcePath}`,
     const markdownContents = elements
       .filter((item) => item.tag === 'markdown')
       .map((item) => String((item as { content?: unknown }).content ?? ''));
-    expect(markdownContents.join('\n')).toContain('**Agent 切换**');
+    expect(markdownContents.join('\n')).toContain('**当前重点**');
+    expect(markdownContents.join('\n')).toContain('**下一步**');
     const fieldGrid = elements.find((item) => item.tag === 'div') as {
       fields?: Array<{ text?: { content?: string } }>;
     } | undefined;
@@ -2051,7 +2057,8 @@ local_audio_path=${sourcePath}`,
     const markdownContents = elements
       .filter((item) => item.tag === 'markdown')
       .map((item) => String((item as { content?: unknown }).content ?? ''));
-    expect(markdownContents.join('\n')).toContain('**Agent**');
+    expect(markdownContents.join('\n')).toContain('**当前重点**');
+    expect(markdownContents.join('\n')).toContain('**下一步**');
     const fieldGrid = elements.find((item) => item.tag === 'div') as {
       fields?: Array<{ text?: { content?: string } }>;
     } | undefined;
@@ -2098,7 +2105,8 @@ local_audio_path=${sourcePath}`,
       const markdownContents = elements
         .filter((item) => item.tag === 'markdown')
         .map((item) => String((item as { content?: unknown }).content ?? ''));
-      expect(markdownContents.join('\n')).toContain('**当前模型**');
+      expect(markdownContents.join('\n')).toContain('**当前重点**');
+      expect(markdownContents.join('\n')).toContain('**下一步**');
       expect(markdownContents.join('\n')).toContain('**可选模型**');
       const buttons = extractFeishuButtons(elements);
       const cmds = buttons.map((button) => button.value?.gateway_cmd);
@@ -2321,7 +2329,8 @@ local_audio_path=${sourcePath}`,
     const markdownContents = elements
       .filter((item) => item.tag === 'markdown')
       .map((item) => String((item as { content?: unknown }).content ?? ''));
-    expect(markdownContents.join('\n')).toContain('**执行成功**');
+    expect(markdownContents.join('\n')).toContain('**结论**');
+    expect(markdownContents.join('\n')).toContain('**下一步**');
     const fieldGrid = elements.find((item) => item.tag === 'div') as {
       fields?: Array<{ text?: { content?: string } }>;
     } | undefined;

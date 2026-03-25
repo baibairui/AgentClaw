@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildFeishuApiLoginFormMessage,
+  buildFeishuApiLoginResultMessage,
   buildFeishuLoginChoiceMessage,
   buildFeishuOpenCodeInputFallbackMessage,
   buildFeishuOpenCodeOauthMessage,
+  buildFeishuPersonalAuthUnavailableMessage,
+  buildFeishuUserAuthMessage,
 } from '../src/services/feishu-command-cards.js';
 
 function getCardElements(payload: string): Array<Record<string, unknown>> {
@@ -44,6 +47,22 @@ function extractButtons(elements: Array<Record<string, unknown>>): Array<{
   }>;
 }
 
+function extractMarkdownContents(elements: Array<Record<string, unknown>>): string[] {
+  return elements.flatMap((item) => {
+    if (item.tag === 'markdown' && typeof item.content === 'string') {
+      return [item.content];
+    }
+    if (item.tag === 'form') {
+      return extractMarkdownContents(Array.isArray(item.elements) ? item.elements as Array<Record<string, unknown>> : []);
+    }
+    if (item.tag === 'column_set') {
+      const columns = Array.isArray(item.columns) ? item.columns as Array<Record<string, unknown>> : [];
+      return columns.flatMap((column) => extractMarkdownContents(Array.isArray(column.elements) ? column.elements as Array<Record<string, unknown>> : []));
+    }
+    return [];
+  });
+}
+
 describe('buildFeishuLoginChoiceMessage', () => {
   it('renders both device auth and API login actions', () => {
     const payload = buildFeishuLoginChoiceMessage();
@@ -56,7 +75,11 @@ describe('buildFeishuLoginChoiceMessage', () => {
     expect(parsed.msg_type).toBe('interactive');
     const elements = getCardElements(payload);
     expect(elements.some((item) => item.tag === 'action')).toBe(false);
+    const markdown = extractMarkdownContents(elements).join('\n');
     const buttons = extractButtons(elements);
+    expect(markdown).toContain('**步骤 1**');
+    expect(markdown).toContain('选择登录方式');
+    expect(markdown).toContain('**建议**');
     expect(buttons.some((item) => item.text?.content === '设备授权登录' && item.value?.gateway_action === 'codex_login.start_device_auth')).toBe(true);
     expect(buttons.some((item) => item.text?.content === 'API URL / Key 登录' && item.value?.gateway_action === 'codex_login.open_api_form')).toBe(true);
   });
@@ -69,7 +92,9 @@ describe('buildFeishuLoginChoiceMessage', () => {
     });
     const elements = getCardElements(payload);
     expect(elements.some((item) => item.tag === 'action')).toBe(false);
+    const markdown = extractMarkdownContents(elements).join('\n');
     const buttons = extractButtons(elements);
+    expect(markdown).toContain('**步骤 1**');
     expect(buttons.some((item) => item.text?.content === '设备授权登录')).toBe(false);
     expect(buttons.some((item) => item.text?.content === 'API URL / Key 登录')).toBe(true);
   });
@@ -100,7 +125,12 @@ describe('buildFeishuApiLoginFormMessage', () => {
 
     expect(parsed.__gateway_message__).toBe(true);
     expect(parsed.msg_type).toBe('interactive');
-    const form = getCardElements(payload).find((item) => item.tag === 'form') as
+    const elements = getCardElements(payload);
+    const markdown = extractMarkdownContents(elements).join('\n');
+    expect(markdown).toContain('**步骤 2**');
+    expect(markdown).toContain('填写 API 配置');
+    expect(markdown).toContain('**填写说明**');
+    const form = elements.find((item) => item.tag === 'form') as
       | {
           name?: string;
           elements?: Array<Record<string, unknown>>;
@@ -152,7 +182,10 @@ describe('buildFeishuOpenCodeOauthMessage', () => {
     expect(parsed.msg_type).toBe('interactive');
     const elements = getCardElements(payload);
     expect(elements.some((item) => item.tag === 'action')).toBe(false);
+    const markdown = extractMarkdownContents(elements).join('\n');
     const buttons = extractButtons(elements);
+    expect(markdown).toContain('**步骤 3**');
+    expect(markdown).toContain('打开浏览器完成授权');
     expect(buttons.some((item) => item.text?.content === '打开授权链接' && item.multi_url?.url === 'https://auth.example.com/oauth/start')).toBe(true);
   });
 });
@@ -170,7 +203,11 @@ describe('buildFeishuOpenCodeInputFallbackMessage', () => {
 
     expect(parsed.__gateway_message__).toBe(true);
     expect(parsed.msg_type).toBe('interactive');
-    const form = getCardElements(payload).find((item) => item.tag === 'form') as
+    const elements = getCardElements(payload);
+    const markdown = extractMarkdownContents(elements).join('\n');
+    expect(markdown).toContain('**步骤 4**');
+    expect(markdown).toContain('补充授权信息');
+    const form = elements.find((item) => item.tag === 'form') as
       | {
           name?: string;
           elements?: Array<Record<string, unknown>>;
@@ -184,5 +221,50 @@ describe('buildFeishuOpenCodeInputFallbackMessage', () => {
       | undefined;
     expect(submitButton?.value?.gateway_action).toBe('opencode_login.submit_auth_input');
     expect(submitButton?.value?.provider_id).toBe('openai');
+  });
+});
+
+describe('auth result and personal auth cards', () => {
+  it('renders api login success as a conclusion-first card with a next step action', () => {
+    const payload = buildFeishuApiLoginResultMessage({
+      ok: true,
+      baseUrl: 'https://codex.ai02.cn',
+      model: 'gpt-5.3-codex',
+      maskedApiKey: 'sk-***',
+      message: '配置已写入并生效',
+    });
+    const elements = getCardElements(payload);
+    const markdown = extractMarkdownContents(elements).join('\n');
+    const buttons = extractButtons(elements);
+
+    expect(markdown).toContain('**结论**');
+    expect(markdown).toContain('配置已写入并生效');
+    expect(markdown).toContain('**下一步**');
+    expect(buttons.some((item) => item.text?.content === '重新登录')).toBe(true);
+  });
+
+  it('renders personal auth request as a guided card with one primary path', () => {
+    const payload = buildFeishuUserAuthMessage({
+      gatewayUserId: 'user_1',
+    });
+    const elements = getCardElements(payload);
+    const markdown = extractMarkdownContents(elements).join('\n');
+    const buttons = extractButtons(elements);
+
+    expect(markdown).toContain('**步骤 1**');
+    expect(markdown).toContain('授权个人任务与个人日历');
+    expect(markdown).toContain('**下一步**');
+    expect(buttons.some((item) => item.text?.content === '去飞书授权')).toBe(true);
+    expect(buttons.some((item) => item.text?.content === '查看授权状态')).toBe(true);
+  });
+
+  it('renders unavailable personal auth as a diagnosis-first card', () => {
+    const payload = buildFeishuPersonalAuthUnavailableMessage();
+    const elements = getCardElements(payload);
+    const markdown = extractMarkdownContents(elements).join('\n');
+
+    expect(markdown).toContain('**当前状态**');
+    expect(markdown).toContain('**下一步**');
+    expect(markdown).toContain('不是 /login 问题');
   });
 });
