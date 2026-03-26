@@ -2135,7 +2135,7 @@ ${clipMessage(userVisibleOutput, 500)}
             }),
             stop: async () => false,
           };
-      if (channel === 'feishu' && activeRunner.runWithControl && !canFeishuRequestAudioReply) {
+      if (channel === 'feishu' && activeRunner.runWithControl) {
         const messageId = await (deps.sendTextWithResult ?? (async () => undefined))(channel, userId, buildFeishuRunCardMessage({
           runId,
           agentName: runtimeAgent.name.trim() === '默认Agent' ? '默认助手' : runtimeAgent.name,
@@ -2160,7 +2160,7 @@ ${clipMessage(userVisibleOutput, 500)}
             await controlledRun.stop(reason);
           },
         });
-      } else if (!(channel === 'feishu' && canFeishuRequestAudioReply)) {
+      } else {
         await sendAgentProgress(deps, channel, userId, runtimeAgent, 'received');
       }
       const result = await controlledRun.result;

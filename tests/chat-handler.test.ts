@@ -1328,7 +1328,7 @@ local_audio_path=${sourcePath}`,
     expect(audioCall).toBeTruthy();
   });
 
-  it('suppresses feishu run cards and streamed text when the model emits reply_mode=audio', async () => {
+  it('keeps feishu run cards while suppressing visible text when the model emits reply_mode=audio', async () => {
     const sendText = vi.fn(async () => undefined);
     const sendTextWithResult = vi.fn(async () => 'om_run_1');
     const sendStreamingText = vi.fn(async () => undefined);
@@ -1400,7 +1400,7 @@ local_audio_path=${sourcePath}`,
       content: '晚安宝贝',
     });
 
-    expect(sendTextWithResult).not.toHaveBeenCalled();
+    expect(sendTextWithResult).toHaveBeenCalledTimes(1);
     expect(sendStreamingText).not.toHaveBeenCalled();
     const audioCalls = sendText.mock.calls.filter((call) => {
       if (call[0] !== 'feishu' || call[1] !== 'u1') {
@@ -1413,7 +1413,11 @@ local_audio_path=${sourcePath}`,
       }
     });
     expect(audioCalls).toHaveLength(1);
-    expect(sendText).toHaveBeenCalledTimes(1);
+    const plainTextCalls = sendText.mock.calls.filter((call) => {
+      const payload = String(call[2]);
+      return payload.includes('晚安宝贝') && !payload.includes('"msg_type":"audio"');
+    });
+    expect(plainTextCalls).toHaveLength(0);
     expect(synthesize).toHaveBeenCalledWith({
       text: '晚安宝贝',
       workspaceDir,
