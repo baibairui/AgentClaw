@@ -100,7 +100,7 @@ function renderSocialDocWriterSkill(): string {
     'Workflow:',
     '- Confirm whether the user wants a new Feishu DocX/Wiki node or an append into an existing DocX.',
     '- Normalize the research into sections: background, scope, findings, evidence links, risks, and next steps.',
-    '- Use `./.codex/skills/feishu-official-ops/SKILL.md` for the real write operation.',
+    '- Use `./.codex/skills/lark-cli/SKILL.md` for the real write operation.',
     '- Create a Feishu DocX or append to an existing DocX only after the structure is clear.',
     '- The final result must be a real Feishu DocX/Wiki write with returned document metadata; a markdown answer in chat is not a substitute.',
     '',

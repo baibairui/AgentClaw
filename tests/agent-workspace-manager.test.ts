@@ -53,7 +53,7 @@ describe('AgentWorkspaceManager', () => {
     expect(fs.existsSync(path.join(userDir, 'agents'))).toBe(true);
     expect(fs.existsSync(path.join(userDir, 'internal'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, 'memory', 'daily'))).toBe(true);
-    expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'feishu-official-ops', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'lark-cli', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, '.codex', 'skills', 'social-intel', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(result.workspaceDir, 'agent.md'))).toBe(false);
     expect(fs.existsSync(path.join(result.workspaceDir, 'TOOLS.md'))).toBe(false);
@@ -66,7 +66,7 @@ describe('AgentWorkspaceManager', () => {
     expect(agentsMd).toContain('../../../../runtime/house-rules.md');
     expect(agentsMd).toContain('../../../../runtime/shared-context.md');
     expect(agentsMd).toContain('./.codex/skills/gateway-browser/SKILL.md');
-    expect(agentsMd).toContain('./.codex/skills/feishu-official-ops/SKILL.md');
+    expect(agentsMd).toContain('./.codex/skills/lark-cli/SKILL.md');
     expect(agentsMd).not.toContain('browser-playbook');
     expect(agentsMd).not.toContain('feishu-ops-playbook');
     expect(soul).toContain('- Agent name: Frontend Pair');

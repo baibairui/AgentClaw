@@ -28,7 +28,7 @@ function resolveMarkdownArg(args: Record<string, string>): string[] {
     if (!fs.existsSync(resolved)) {
       throw new Error(`markdown file not found: ${resolved}`);
     }
-    return ['--markdown-file', resolved];
+    return ['--markdown', fs.readFileSync(resolved, 'utf8')];
   }
 
   const markdown = args.markdown?.trim();
@@ -49,18 +49,14 @@ function main(): void {
     || process.env.FEISHU_ITERATION_DOCX?.trim()
     || process.env.FEISHU_ITERATION_DOCX_ID?.trim();
 
-  const cliPath = path.resolve('./.codex/skills/feishu-official-ops/scripts/feishu-openapi.mjs');
-  if (!fs.existsSync(cliPath)) {
-    throw new Error(`feishu openapi cli not found: ${cliPath}`);
-  }
-
   const markdownArgs = resolveMarkdownArg(args);
-  const childArgs = [cliPath, 'docx', 'append'];
+  const childArgs = ['docs', '+update'];
   if (document) {
-    childArgs.push('--document', document);
+    childArgs.push('--doc', document);
   }
+  childArgs.push('--mode', 'append');
   childArgs.push(...markdownArgs);
-  const result = spawnSync('node', childArgs, {
+  const result = spawnSync('lark-cli', childArgs, {
     stdio: 'inherit',
     env: process.env,
   });

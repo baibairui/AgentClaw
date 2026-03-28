@@ -968,6 +968,11 @@ export function buildCodexChildEnv(
     ...baseEnv,
   };
 
+  const hostHome = baseEnv.HOME?.trim();
+  if (hostHome) {
+    env.CODEX_WORKDIR_ISOLATION_HOST_HOME = hostHome;
+  }
+
   if (input.reminderToolContext) {
     env.GATEWAY_REMINDER_DB_PATH = input.reminderToolContext.dbPath;
     env.GATEWAY_REMINDER_CHANNEL = input.reminderToolContext.channel;

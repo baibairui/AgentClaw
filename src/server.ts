@@ -23,10 +23,10 @@ import { MemorySteward } from './services/memory-steward.js';
 import { ReminderStore } from './services/reminder-store.js';
 import { ReminderDispatcher } from './services/reminder-dispatcher.js';
 import { installReminderToolSkill } from './services/reminder-tool-skill.js';
-import { installFeishuOfficialOpsSkill } from './services/feishu-official-ops-skill.js';
-import { installFeishuCanvasSkill } from './services/feishu-canvas-skill.js';
 import { installGatewayBrowserSkill, syncManagedGlobalSkills } from './services/gateway-browser-skill.js';
 import { installGatewayDesktopSkill, syncManagedGlobalDesktopSkills } from './services/gateway-desktop-skill.js';
+import { ensureLarkCliReady } from './services/lark-cli-bootstrap.js';
+import { installLarkCliSkill } from './services/lark-cli-skill.js';
 import { OpenCodeAuthFlowManager, buildOpenCodeAuthSessionKey } from './services/opencode-auth-flow.js';
 import { pushFeishuStartupHelp } from './services/startup-help.js';
 import { createSpeechService } from './services/speech-service-factory.js';
@@ -120,6 +120,12 @@ fs.mkdirSync(codexHomeDir, { recursive: true });
 fs.mkdirSync(opencodeHomeDir, { recursive: true });
 fs.mkdirSync(feishuImageCacheDir, { recursive: true });
 
+await ensureLarkCliReady({
+  gatewayRootDir,
+  codexHomeDir,
+  log,
+});
+
 log.debug('Agent 工作区目录已就绪', { agentsDir });
 const reminderDbPath = path.join(dataDir, 'reminders.db');
 const openCodeAuthFlowManager = new OpenCodeAuthFlowManager();
@@ -130,7 +136,7 @@ const sessionStore = new SessionStore(path.join(dataDir, 'sessions.db'), {
 log.debug('SessionStore 已初始化');
 const agentWorkspaceManager = new AgentWorkspaceManager(agentsDir);
 log.debug('AgentWorkspaceManager 已初始化', { agentsDir });
-syncBuiltInSkills(agentsDir);
+syncBuiltInSkills(agentWorkspaceManager, agentsDir);
 const dedupStore = new MessageDedupStore(config.dedupWindowSeconds);
 log.debug('MessageDedupStore 已初始化', { dedupWindowSeconds: config.dedupWindowSeconds });
 const rateLimitStore = new RateLimitStore(config.rateLimitMaxMessages, config.rateLimitWindowSeconds);
@@ -1192,12 +1198,12 @@ async function appDepsHandleFeishuCardAction(input: {
   });
 }
 
-function syncBuiltInSkills(agentsRootDir: string): void {
+function syncBuiltInSkills(agentWorkspaceManager: AgentWorkspaceManager, agentsRootDir: string): void {
   syncManagedGlobalSkills();
   syncManagedGlobalDesktopSkills();
   installReminderToolSkill(path.resolve(agentsRootDir));
-  installFeishuOfficialOpsSkill(path.resolve(agentsRootDir));
-  installFeishuCanvasSkill(path.resolve(agentsRootDir));
+  installLarkCliSkill(path.resolve(agentsRootDir));
+  agentWorkspaceManager.repairWorkspaceScaffold(path.resolve(agentsRootDir));
   const usersDir = path.join(agentsRootDir, 'users');
   if (!fs.existsSync(usersDir)) {
     return;
@@ -1211,8 +1217,8 @@ function syncBuiltInSkills(agentsRootDir: string): void {
       installGatewayBrowserSkill(workspaceDir);
       installGatewayDesktopSkill(workspaceDir);
       installReminderToolSkill(workspaceDir);
-      installFeishuOfficialOpsSkill(workspaceDir);
-      installFeishuCanvasSkill(workspaceDir);
+      installLarkCliSkill(workspaceDir);
+      agentWorkspaceManager.repairWorkspaceScaffold(workspaceDir);
     }
   }
 }

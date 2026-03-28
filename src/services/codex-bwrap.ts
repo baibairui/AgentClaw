@@ -39,6 +39,7 @@ const OPENCODE_SYNC_PATHS = [
 const DEFAULT_HOME_READONLY_PATHS = ['.gitconfig', '.ssh/config', '.ssh/known_hosts'] as const;
 const SSH_CONFIG_RELATIVE_PATH = '.ssh/config';
 const EXTRA_READS_ENV_NAME = 'CODEX_WORKDIR_ISOLATION_EXTRA_READS';
+const HOST_HOME_ENV_NAME = 'CODEX_WORKDIR_ISOLATION_HOST_HOME';
 
 export function buildCodexSpawnSpec(input: BuildCodexSpawnSpecInput): CodexSpawnSpec {
   const hostHomeDir = resolveHostHomeDir(input.env);
@@ -58,7 +59,8 @@ export function buildCodexSpawnSpec(input: BuildCodexSpawnSpecInput): CodexSpawn
 
   const workspaceDir = path.resolve(input.cwd);
   const runtimeHomeDir = path.join(workspaceDir, RUNTIME_HOME_DIR);
-  syncCodexRuntimeHome(input.codexHomeDir, runtimeHomeDir);
+  syncCodexRuntimeHome(input.codexHomeDir, runtimeHomeDir, hostHomeDir);
+  removeStaleWorkspaceGitSshOverrides(workspaceDir, runtimeHomeDir);
 
   return {
     command: 'bwrap',
@@ -392,7 +394,7 @@ function ensureSandboxDirTree(result: string[], createdDirs: Set<string>, dirPat
   }
 }
 
-function syncCodexRuntimeHome(sourceDir: string | undefined, targetDir: string): void {
+function syncCodexRuntimeHome(sourceDir: string | undefined, targetDir: string, hostHomeDir: string | undefined): void {
   fs.mkdirSync(targetDir, { recursive: true });
   fs.mkdirSync(path.join(targetDir, '.config'), { recursive: true });
   fs.mkdirSync(path.join(targetDir, '.cache'), { recursive: true });
@@ -400,6 +402,8 @@ function syncCodexRuntimeHome(sourceDir: string | undefined, targetDir: string):
   fs.mkdirSync(path.join(targetDir, 'tmp'), { recursive: true });
   fs.mkdirSync(path.join(targetDir, 'sessions'), { recursive: true });
   fs.mkdirSync(path.join(targetDir, 'shell_snapshots'), { recursive: true });
+
+  syncHostHomeReadonlyFiles(targetDir, hostHomeDir);
 
   if (!sourceDir) {
     return;
@@ -425,6 +429,100 @@ function syncCodexRuntimeHome(sourceDir: string | undefined, targetDir: string):
     fs.mkdirSync(path.dirname(targetFile), { recursive: true });
     fs.copyFileSync(sourceFile, targetFile);
   }
+}
+
+function syncHostHomeReadonlyFiles(targetDir: string, hostHomeDir: string | undefined): void {
+  if (!hostHomeDir) {
+    return;
+  }
+
+  for (const relativePath of DEFAULT_HOME_READONLY_PATHS) {
+    copyOptionalHostFile(hostHomeDir, targetDir, relativePath);
+  }
+
+  for (const identityPath of resolveSshIdentityFiles(hostHomeDir)) {
+    const targetPath = resolveRuntimeTargetForHostPath(targetDir, hostHomeDir, identityPath);
+    if (!targetPath) {
+      continue;
+    }
+    if (!fs.existsSync(identityPath) || !fs.statSync(identityPath).isFile()) {
+      fs.rmSync(targetPath, { force: true });
+      continue;
+    }
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.copyFileSync(identityPath, targetPath);
+  }
+}
+
+function copyOptionalHostFile(hostHomeDir: string, targetDir: string, relativePath: string): void {
+  const sourcePath = path.join(hostHomeDir, relativePath);
+  const targetPath = path.join(targetDir, relativePath);
+  if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
+    fs.rmSync(targetPath, { force: true });
+    return;
+  }
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+function removeStaleWorkspaceGitSshOverrides(workspaceDir: string, runtimeHomeDir: string): void {
+  for (const gitConfigPath of findWorkspaceGitConfigFiles(workspaceDir)) {
+    if (!fs.existsSync(gitConfigPath) || !fs.statSync(gitConfigPath).isFile()) {
+      continue;
+    }
+    const content = fs.readFileSync(gitConfigPath, 'utf8');
+    const next = stripStaleSshCommandLines(content, runtimeHomeDir);
+    if (next !== content) {
+      fs.writeFileSync(gitConfigPath, next, 'utf8');
+    }
+  }
+}
+
+function findWorkspaceGitConfigFiles(workspaceDir: string): string[] {
+  const output: string[] = [];
+  const stack = [workspaceDir];
+
+  while (stack.length > 0) {
+    const currentDir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      if (entry.name === '.git') {
+        output.push(path.join(currentDir, '.git', 'config'));
+        continue;
+      }
+      if (entry.name === 'node_modules' || entry.name === '.codex-runtime') {
+        continue;
+      }
+      stack.push(path.join(currentDir, entry.name));
+    }
+  }
+
+  return output;
+}
+
+function stripStaleSshCommandLines(content: string, runtimeHomeDir: string): string {
+  const staleMarkers = [
+    `${RUNTIME_HOME_MOUNT_DIR}/.ssh/`,
+    `${runtimeHomeDir}/.ssh/`,
+  ];
+  const lines = content.split('\n');
+  const nextLines = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (!/^sshCommand\s*=/.test(trimmed)) {
+      return true;
+    }
+    return !staleMarkers.some((marker) => trimmed.includes(marker));
+  });
+  return nextLines.join('\n');
 }
 
 function collectReadonlyMounts(
@@ -537,6 +635,10 @@ function resolveRuntimeTargetForHostPath(
 }
 
 function resolveHostHomeDir(env: NodeJS.ProcessEnv): string | undefined {
+  const explicitHostHome = env[HOST_HOME_ENV_NAME]?.trim();
+  if (explicitHostHome) {
+    return path.resolve(explicitHostHome);
+  }
   const home = env.HOME?.trim();
   if (home) {
     return path.resolve(home);

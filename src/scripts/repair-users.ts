@@ -3,9 +3,8 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import { AgentWorkspaceManager } from '../services/agent-workspace-manager.js';
-import { installFeishuCanvasSkill } from '../services/feishu-canvas-skill.js';
-import { installFeishuOfficialOpsSkill } from '../services/feishu-official-ops-skill.js';
 import { installGatewayBrowserSkill } from '../services/gateway-browser-skill.js';
+import { installLarkCliSkill } from '../services/lark-cli-skill.js';
 import { installReminderToolSkill } from '../services/reminder-tool-skill.js';
 
 interface RepairStats {
@@ -34,8 +33,7 @@ function repairWorkspace(workspaceDir: string): void {
   fs.mkdirSync(workspaceDir, { recursive: true });
   installGatewayBrowserSkill(workspaceDir);
   installReminderToolSkill(workspaceDir);
-  installFeishuOfficialOpsSkill(workspaceDir);
-  installFeishuCanvasSkill(workspaceDir);
+  installLarkCliSkill(workspaceDir);
 }
 
 function listUserWorkspaceDirs(userDir: string): string[] {

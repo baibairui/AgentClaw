@@ -863,6 +863,84 @@ describe('buildCodexSpawnSpec', () => {
     expect(spec.args).toContain('/workspace/.codex-runtime/home/.ssh/known_hosts');
     expect(spec.args).toContain(path.join(hostHome, '.ssh', 'agentclaw-deploy'));
     expect(spec.args).toContain('/workspace/.codex-runtime/home/.ssh/agentclaw-deploy');
+    expect(fs.readFileSync(path.join(workspaceDir, '.codex-runtime', 'home', '.ssh', 'config'), 'utf8')).toContain('Host github');
+    expect(fs.readFileSync(path.join(workspaceDir, '.codex-runtime', 'home', '.ssh', 'known_hosts'), 'utf8')).toContain('github.com');
+    expect(fs.readFileSync(path.join(workspaceDir, '.codex-runtime', 'home', '.ssh', 'agentclaw-deploy'), 'utf8')).toBe('PRIVATE KEY\n');
+  });
+
+  it('prefers the explicit host HOME when codexHomeDir overrides child HOME', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-bwrap-explicit-host-home-'));
+    const hostHome = path.join(tempRoot, 'host-home');
+    const instanceHome = path.join(tempRoot, 'instance-home');
+    const workspaceDir = path.join(tempRoot, 'workspace');
+
+    fs.mkdirSync(path.join(hostHome, '.ssh'), { recursive: true });
+    fs.mkdirSync(instanceHome, { recursive: true });
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(path.join(hostHome, '.gitconfig'), '[user]\n\tname = baibairui\n', 'utf8');
+    fs.writeFileSync(path.join(hostHome, '.ssh', 'config'), 'Host github.com\n  HostName github.com\n  IdentityFile ~/.ssh/id_ed25519\n', 'utf8');
+    fs.writeFileSync(path.join(hostHome, '.ssh', 'id_ed25519'), 'PRIVATE KEY\n', 'utf8');
+    fs.writeFileSync(path.join(hostHome, '.ssh', 'known_hosts'), 'github.com ssh-ed25519 AAAA\n', 'utf8');
+
+    buildCodexSpawnSpec({
+      codexBin: '/usr/bin/codex',
+      args: ['exec', '--json', 'hello'],
+      cwd: workspaceDir,
+      env: {
+        HOME: instanceHome,
+        CODEX_WORKDIR_ISOLATION_HOST_HOME: hostHome,
+        PATH: '/usr/bin:/bin',
+      },
+      isolationMode: 'bwrap',
+      codexHomeDir: instanceHome,
+    });
+
+    expect(fs.readFileSync(path.join(workspaceDir, '.codex-runtime', 'home', '.gitconfig'), 'utf8')).toContain('name = baibairui');
+    expect(fs.readFileSync(path.join(workspaceDir, '.codex-runtime', 'home', '.ssh', 'config'), 'utf8')).toContain('IdentityFile ~/.ssh/id_ed25519');
+    expect(fs.readFileSync(path.join(workspaceDir, '.codex-runtime', 'home', '.ssh', 'id_ed25519'), 'utf8')).toBe('PRIVATE KEY\n');
+  });
+
+  it('removes stale repo-level core.sshCommand that points at old runtime ssh paths', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-bwrap-stale-git-ssh-'));
+    const hostHome = path.join(tempRoot, 'host-home');
+    const instanceHome = path.join(tempRoot, 'instance-home');
+    const workspaceDir = path.join(tempRoot, 'workspace');
+    const repoDir = path.join(workspaceDir, 'fyp-backend');
+
+    fs.mkdirSync(path.join(hostHome, '.ssh'), { recursive: true });
+    fs.mkdirSync(path.join(instanceHome), { recursive: true });
+    fs.mkdirSync(path.join(repoDir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(hostHome, '.ssh', 'config'), 'Host github-fyp\n  HostName github.com\n  IdentityFile ~/.ssh/id_ed25519\n', 'utf8');
+    fs.writeFileSync(path.join(hostHome, '.ssh', 'id_ed25519'), 'PRIVATE KEY\n', 'utf8');
+    fs.writeFileSync(path.join(hostHome, '.ssh', 'known_hosts'), 'github.com ssh-ed25519 AAAA\n', 'utf8');
+    fs.writeFileSync(path.join(repoDir, '.git', 'config'), [
+      '[core]',
+      '\trepositoryformatversion = 0',
+      '\tfilemode = true',
+      '\tbare = false',
+      '\tlogallrefupdates = true',
+      '\tsshCommand = ssh -i /workspace/.codex-runtime/home/.ssh/codex-gateway-deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/workspace/.codex-runtime/home/.ssh/known_hosts',
+      '[remote "origin"]',
+      '\turl = git@github-fyp:baibairui/fyp.git',
+      '\tfetch = +refs/heads/*:refs/remotes/origin/*',
+      '',
+    ].join('\n'), 'utf8');
+
+    buildCodexSpawnSpec({
+      codexBin: '/usr/bin/codex',
+      args: ['exec', '--json', 'hello'],
+      cwd: workspaceDir,
+      env: {
+        HOME: hostHome,
+        PATH: '/usr/bin:/bin',
+      },
+      isolationMode: 'bwrap',
+      codexHomeDir: instanceHome,
+    });
+
+    const config = fs.readFileSync(path.join(repoDir, '.git', 'config'), 'utf8');
+    expect(config).not.toContain('codex-gateway-deploy');
+    expect(config).not.toContain('UserKnownHostsFile=/workspace/.codex-runtime/home/.ssh/known_hosts');
   });
 
   it('bridges extra home-relative config paths into isolated runtime home', () => {

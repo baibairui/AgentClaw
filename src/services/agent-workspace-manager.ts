@@ -2,10 +2,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { installFeishuCanvasSkill } from './feishu-canvas-skill.js';
-import { installFeishuOfficialOpsSkill } from './feishu-official-ops-skill.js';
 import { installGatewayBrowserSkill } from './gateway-browser-skill.js';
 import { installGatewayDesktopSkill } from './gateway-desktop-skill.js';
+import { installLarkCliSkill } from './lark-cli-skill.js';
 import { installReminderToolSkill } from './reminder-tool-skill.js';
 import { installSocialIntelSkills } from './social-intel-skill.js';
 
@@ -563,7 +562,7 @@ function renderWorkspaceAgentsMd(
     '- 浏览器任务：`./.codex/skills/gateway-browser/SKILL.md`',
     '- 桌面任务：`./.codex/skills/macos-gui-skill/SKILL.md`',
     '- 定时提醒：`./.codex/skills/reminder-tool/SKILL.md`',
-    '- 飞书官方操作：`./.codex/skills/feishu-official-ops/SKILL.md`',
+    '- 飞书官方操作：`./.codex/skills/lark-cli/SKILL.md`',
     '- 社媒调研：`./.codex/skills/social-intel/SKILL.md`',
     '',
     '工作规则：',
@@ -1116,8 +1115,7 @@ function installManagedSkills(workspaceDir: string): void {
   installGatewayBrowserSkill(workspaceDir);
   installGatewayDesktopSkill(workspaceDir);
   installReminderToolSkill(workspaceDir);
-  installFeishuOfficialOpsSkill(workspaceDir);
-  installFeishuCanvasSkill(workspaceDir);
+  installLarkCliSkill(workspaceDir);
   installSocialIntelSkills(workspaceDir);
 }
 
