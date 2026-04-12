@@ -8,6 +8,13 @@ describe('normalizeFeishuIncomingMessage', () => {
     expect(content).toBe('你好');
   });
 
+  it('parses text messages when raw content is already an object', () => {
+    const content = normalizeFeishuIncomingMessage('text', {
+      text: '对象形态文本',
+    });
+    expect(content).toBe('对象形态文本');
+  });
+
   it('prefers text_without_at_bot for text messages', () => {
     const content = normalizeFeishuIncomingMessage('text', JSON.stringify({
       text: '@机器人 帮我总结',

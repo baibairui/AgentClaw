@@ -226,7 +226,16 @@ export function dispatchFeishuMessageReceiveEvent(
   const messageType = typeof message.message_type === 'string' ? message.message_type : '';
   const chatId = typeof message.chat_id === 'string' ? message.chat_id : '';
   const chatType = typeof message.chat_type === 'string' ? message.chat_type : '';
-  const rawContent = typeof message.content === 'string' ? message.content : '';
+  const rawContentValue = message.content;
+  const rawContent = typeof rawContentValue === 'string'
+    ? rawContentValue
+    : (
+      rawContentValue
+      && typeof rawContentValue === 'object'
+      && !Array.isArray(rawContentValue)
+        ? JSON.stringify(rawContentValue)
+        : ''
+    );
   const mentions = message.mentions;
 
   if (!openId || !messageId || !messageType || !rawContent) {

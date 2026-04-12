@@ -711,6 +711,37 @@ describe('dispatchFeishuMessageReceiveEvent', () => {
     });
   });
 
+  it('accepts long connection payloads whose content is already an object', async () => {
+    const handleText = vi.fn(async () => undefined);
+
+    const result = dispatchFeishuMessageReceiveEvent({
+      allowFrom: '*',
+      feishuGroupRequireMention: false,
+      isDuplicateMessage: () => false,
+      handleText,
+    }, {
+      sender: { sender_id: { open_id: 'ou_ws_2' } },
+      message: {
+        message_id: 'om_ws_2',
+        chat_id: 'oc_dm_3',
+        chat_type: 'p2p',
+        message_type: 'text',
+        content: { text: 'hello from object payload' },
+      },
+    });
+
+    expect(result).toBe('success');
+    expect(handleText).toHaveBeenCalledWith({
+      channel: 'feishu',
+      userId: 'ou_ws_2',
+      content: 'hello from object payload',
+      sourceMessageId: 'om_ws_2',
+      allowReply: true,
+      replyTargetId: 'ou_ws_2',
+      replyTargetType: 'open_id',
+    });
+  });
+
   it('uses chat_id as reply target for group messages', async () => {
     const handleText = vi.fn(async () => undefined);
 

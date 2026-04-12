@@ -170,17 +170,28 @@ function parseFeishuShareUser(raw: JsonObject): string {
   );
 }
 
-export function normalizeFeishuIncomingMessage(messageType: string, rawContent: string): string {
+export function normalizeFeishuIncomingMessage(messageType: string, rawContent: unknown): string {
   const type = messageType.trim().toLowerCase();
-  if (!type || !rawContent.trim()) {
+  if (!type) {
     return '';
   }
 
+  const rawContentText = typeof rawContent === 'string'
+    ? rawContent.trim()
+    : '';
+
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawContent);
-  } catch {
-    return '';
+  if (rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent)) {
+    parsed = rawContent;
+  } else {
+    if (!rawContentText) {
+      return '';
+    }
+    try {
+      parsed = JSON.parse(rawContentText);
+    } catch {
+      return '';
+    }
   }
 
   const obj = asObject(parsed);
