@@ -34,6 +34,13 @@ function createMockChildProcess() {
   return child;
 }
 
+function createMockCodexExecutable(prefix: string): string {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const codexScript = path.join(tempRoot, 'codex.js');
+  fs.writeFileSync(codexScript, '#!/usr/bin/env node\nconsole.log("ok");\n', { mode: 0o755 });
+  return codexScript;
+}
+
 async function tick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -487,9 +494,7 @@ describe('buildCodexChildEnv', () => {
 
 describe('buildCodexSpawnSpec', () => {
   it('keeps direct codex spawn when isolation is off', () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-direct-launch-'));
-    const codexScript = path.join(tempRoot, 'codex.js');
-    fs.writeFileSync(codexScript, '#!/usr/bin/env node\nconsole.log("ok");\n', { mode: 0o755 });
+    const codexScript = createMockCodexExecutable('codex-direct-launch-');
 
     const spec = buildCodexSpawnSpec({
       codexBin: codexScript,
@@ -510,9 +515,7 @@ describe('buildCodexSpawnSpec', () => {
   });
 
   it('uses the current node executable for node-shebang codex scripts', () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-script-launch-'));
-    const codexScript = path.join(tempRoot, 'codex.js');
-    fs.writeFileSync(codexScript, '#!/usr/bin/env node\nconsole.log("ok");\n', { mode: 0o755 });
+    const codexScript = createMockCodexExecutable('codex-script-launch-');
 
     const spec = buildCodexSpawnSpec({
       codexBin: codexScript,
@@ -1174,9 +1177,10 @@ describe('CodexRunner', () => {
   it('allows system runs to inherit the configured global workdir', async () => {
     const child = createMockChildProcess();
     vi.mocked(spawn).mockReturnValue(child as never);
+    const codexScript = createMockCodexExecutable('codex-system-run-');
 
     const runner = new CodexRunner({
-      codexBin: 'codex',
+      codexBin: codexScript,
       workdir: '/tmp/agents-root',
       timeoutMs: 50,
     });
@@ -1221,9 +1225,10 @@ describe('CodexRunner', () => {
     vi.useFakeTimers();
     const child = createMockChildProcess();
     vi.mocked(spawn).mockReturnValue(child as never);
+    const codexScript = createMockCodexExecutable('codex-active-timeout-');
 
     const runner = new CodexRunner({
-      codexBin: 'codex',
+      codexBin: codexScript,
       workdir: '/tmp/agent-active-timeout',
       timeoutMs: 50,
     });
