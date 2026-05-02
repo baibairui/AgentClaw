@@ -54,6 +54,14 @@ interface SessionStoreLike {
   listDetailed(userId: string, agentId: string): SessionListItem[];
   resolveSwitchTarget(userId: string, agentId: string, target: string): string | undefined;
   renameSession(targetThreadId: string, name: string): boolean;
+  recordSessionActivity?(
+    threadId: string,
+    input: {
+      role: 'user' | 'assistant';
+      text?: string;
+      timestamp?: number;
+    },
+  ): void;
 }
 
 interface RateLimitStoreLike {
@@ -905,6 +913,20 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     deps.sessionStore.setSession(userKey, agentId, threadId, lastPrompt, {
       boundIdentityVersion,
     });
+  }
+
+  function recordSessionActivity(
+    threadId: string | undefined,
+    input: {
+      role: 'user' | 'assistant';
+      text?: string;
+      timestamp?: number;
+    },
+  ): void {
+    if (!threadId) {
+      return;
+    }
+    deps.sessionStore.recordSessionActivity?.(threadId, input);
   }
 
   function setActiveMemoryOnboarding(
@@ -1967,6 +1989,11 @@ ${clipMessage(text, 500)}
           feishuTtsEnabled: canFeishuRequestAudioReply,
         },
       );
+      recordSessionActivity(runtimeThreadId, {
+        role: 'user',
+        text: speechPrompt?.prompt ?? normalizedPrompt,
+        timestamp: Date.now(),
+      });
       const runtimeProvider = getCurrentProvider(sessionUserKey, runtimeAgent.agentId);
       const activeRunner = getRunner(runtimeProvider);
       const runId = `run_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -2273,6 +2300,11 @@ ${clipMessage(userVisibleOutput, 500)}
         prompt,
         identityBinding.boundIdentityVersion,
       );
+      recordSessionActivity(result.threadId, {
+        role: 'assistant',
+        text: lastAgentRawOutput || result.rawOutput,
+        timestamp: Date.now(),
+      });
       if (activeOnboarding && isMemoryOnboardingComplete(sessionUserKey, activeOnboarding)) {
         clearActiveMemoryOnboarding(sessionUserKey);
       }
